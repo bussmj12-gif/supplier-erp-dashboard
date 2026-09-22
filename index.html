@@ -518,38 +518,45 @@ async function loadData(showLoading){
 // ===================== 엑셀 업로드 & 파싱 =====================
 function normalizeHeader(h){ return String(h).replace(/\n/g,'').trim(); }
 
-function parseWorkbookToRecords(wb){
+async function parseWorkbookToRecords(wb){
   const out = [];
-  for(const sheetName in SHEETS){
-    if(wb.SheetNames.indexOf(sheetName)===-1) continue;
+  const sheetNames = Object.keys(SHEETS).filter(sn => wb.SheetNames.indexOf(sn) !== -1);
+  let done = 0;
+  for(const sheetName of sheetNames){
     const pair = SHEETS[sheetName];
     const vendor = pair[0], project = pair[1];
     const ws = wb.Sheets[sheetName];
     const aoa = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null});
-    if(!aoa.length) continue;
-    const header = aoa[0];
-    const colOf = {};
-    header.forEach((h,idx)=>{
-      if(h===null||h===undefined) return;
-      const key = normalizeHeader(h);
-      const field = FIELD_MAP[key];
-      if(field && !(field in colOf)) colOf[field] = idx;
-    });
-    if(!('order_no' in colOf)) continue;
-    for(let r=1;r<aoa.length;r++){
-      const row = aoa[r];
-      const orderNo = row[colOf.order_no];
-      if(orderNo===null||orderNo===undefined||orderNo==='') continue;
-      const rec = { vendor: vendor, project: project };
-      for(const field in colOf){
-        let val = row[colOf[field]];
-        if(val instanceof Date) val = dateCellToStr(val);
-        else if(typeof val==='string') val = val.trim();
-        if(val===null||val===''||val===undefined) continue;
-        rec[field] = val;
+    if(aoa.length){
+      const header = aoa[0];
+      const colOf = {};
+      header.forEach((h,idx)=>{
+        if(h===null||h===undefined) return;
+        const key = normalizeHeader(h);
+        const field = FIELD_MAP[key];
+        if(field && !(field in colOf)) colOf[field] = idx;
+      });
+      if('order_no' in colOf){
+        for(let r=1;r<aoa.length;r++){
+          const row = aoa[r];
+          const orderNo = row[colOf.order_no];
+          if(orderNo===null||orderNo===undefined||orderNo==='') continue;
+          const rec = { vendor: vendor, project: project };
+          for(const field in colOf){
+            let val = row[colOf[field]];
+            if(val instanceof Date) val = dateCellToStr(val);
+            else if(typeof val==='string') val = val.trim();
+            if(val===null||val===''||val===undefined) continue;
+            rec[field] = val;
+          }
+          out.push(rec);
+        }
       }
-      out.push(rec);
     }
+    done++;
+    setSyncState('loading', '엑셀 분석 중… (시트 ' + done + '/' + sheetNames.length + ')');
+    // 브라우저에 제어권을 잠깐 돌려줘서 "응답 없음" 경고를 방지
+    await new Promise(resolve => setTimeout(resolve, 0));
   }
   return out;
 }
@@ -567,11 +574,12 @@ function toShortRecord(rec){
 async function handleFileUpload(file){
   const label = document.getElementById('btn-upload-label');
   label.classList.add('disabled');
-  setSyncState('loading','엑셀 분석 중…');
+  setSyncState('loading','엑셀 파일 읽는 중…');
   try{
+    await new Promise(resolve => setTimeout(resolve, 0)); // 상태 메시지가 먼저 화면에 그려지도록
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, {type:'array', cellDates:true});
-    let records = parseWorkbookToRecords(wb);
+    let records = await parseWorkbookToRecords(wb);
     records = records.filter(r => !isDeliveredRec(r));
     if(!records.length){
       throw new Error('인식 가능한 데이터가 없습니다. 시트 이름/구조를 확인해 주세요.');
