@@ -243,7 +243,7 @@ const FULL_KEY = {
 const DATA = RAW.map((r,i)=>{
   const o = {id:i};
   for(const k in r){ o[FULL_KEY[k]||k] = r[k]; }
-  const delivered = (o.delivery_status && o.delivery_status.indexOf('완료')>=0) || !!o.delivery_date;
+  const delivered = (o.delivery_status && String(o.delivery_status).indexOf('완료')>=0) || !!o.delivery_date;
   const dueDate = parseD(o.due_date);
   const dleft = (!delivered && dueDate) ? daysBetween(dueDate, today) : null;
   let status = 'green';
@@ -289,7 +289,7 @@ function applyFilter(){
     if(state.vendor && d.vendor!==state.vendor) return false;
     if(state.project && d.project!==state.project) return false;
     if(state.hull){
-      const h = (d.hull||'').toLowerCase();
+      const h = String(d.hull||'').toLowerCase();
       if(h.indexOf(state.hull.toLowerCase())<0) return false;
     }
     if(state.text){
