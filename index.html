@@ -602,23 +602,39 @@ function setSyncState(kind, text){
 }
 
 // ===================== Google Sheets에서 불러오기 =====================
+async function fetchOrdersOnce_(){
+  const res = await fetch(SCRIPT_URL + '?t=' + Date.now());
+  if(!res.ok) throw new Error('HTTP ' + res.status);
+  const json = await res.json();
+  if(!('records' in json)) throw new Error('예상치 못한 응답 형식');
+  return json;
+}
+
 async function loadData(showLoading){
   if(showLoading) setSyncState('loading','불러오는 중…');
-  try{
-    const res = await fetch(SCRIPT_URL + '?t=' + Date.now());
-    if(!res.ok) throw new Error('HTTP ' + res.status);
-    const json = await res.json();
-    RAW = json.records || [];
-    buildData();
-    populateVendorOptions();
-    refreshProjectOptions();
-    state.page = 1;
-    render();
-    setSyncState('ok', json.updatedAt ? ('마지막 업데이트 ' + fmtDateTime(json.updatedAt)) : '데이터 없음 — 엑셀을 업로드해 주세요');
-  }catch(err){
-    console.error(err);
-    setSyncState('error','불러오기 실패 — 연결 설정을 확인하세요');
+  const MAX_TRIES = 3;
+  let lastErr = null;
+  for(let attempt = 1; attempt <= MAX_TRIES; attempt++){
+    try{
+      const json = await fetchOrdersOnce_();
+      RAW = json.records || [];
+      buildData();
+      populateVendorOptions();
+      refreshProjectOptions();
+      state.page = 1;
+      render();
+      setSyncState('ok', json.updatedAt ? ('마지막 업데이트 ' + fmtDateTime(json.updatedAt)) : '데이터 없음 — 엑셀을 업로드해 주세요');
+      return; // 성공하면 종료
+    }catch(err){
+      lastErr = err;
+      console.error('loadData attempt ' + attempt + ' failed:', err);
+      if(attempt < MAX_TRIES){
+        setSyncState('loading', '불러오는 중… (재시도 ' + attempt + '/' + (MAX_TRIES-1) + ')');
+        await new Promise(r => setTimeout(r, 700 * attempt)); // 조금씩 대기 시간을 늘려 재시도
+      }
+    }
   }
+  setSyncState('error','불러오기 실패 — 연결 설정을 확인하세요');
 }
 
 // ===================== 엑셀 업로드 & 파싱 =====================
@@ -758,9 +774,10 @@ function showApp(){
   document.getElementById('app').classList.remove('hidden');
   const badge = document.getElementById('user-badge');
   badge.style.display = '';
-  badge.innerHTML = '<span class="dot ok"></span><span>' + AUTH.name + ' (' + (AUTH.role==='admin' ? '관리자' : '직원') + ')</span>';
-  document.getElementById('btn-upload-label').classList.toggle('hidden', AUTH.role !== 'admin');
-  document.getElementById('btn-admin-toggle').classList.toggle('hidden', AUTH.role !== 'admin');
+  const roleLabel = AUTH.role==='owner' ? '최고관리자' : (AUTH.role==='admin' ? '관리자' : '직원');
+  badge.innerHTML = '<span class="dot ok"></span><span>' + AUTH.name + ' (' + roleLabel + ')</span>';
+  document.getElementById('btn-upload-label').classList.toggle('hidden', AUTH.role !== 'admin' && AUTH.role !== 'owner');
+  document.getElementById('btn-admin-toggle').classList.toggle('hidden', AUTH.role !== 'owner');
   loadData(true);
 }
 
@@ -826,7 +843,7 @@ async function loadUserList(){
       row.innerHTML =
         '<span class="u-name">'+u.name+'</span>'+
         '<span class="u-id">@'+u.username+'</span>'+
-        '<span class="u-role '+(u.role==='admin'?'admin':'viewer')+'">'+(u.role==='admin'?'관리자':'직원')+'</span>'+
+        '<span class="u-role '+(u.role==='owner'?'admin':(u.role==='admin'?'admin':'viewer'))+'">'+(u.role==='owner'?'최고관리자':(u.role==='admin'?'관리자':'직원'))+'</span>'+
         '<span class="u-status">'+(inactive ? '비활성' : '활성')+'</span>'+
         '<span class="u-actions">'+
           '<button data-act="toggle" data-u="'+u.username+'">'+(inactive?'활성화':'비활성화')+'</button>'+
