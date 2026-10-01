@@ -438,6 +438,7 @@ function buildData(){
     const o = {id:i};
     for(const k in r){ o[FULL_KEY[k]||k] = r[k]; }
     const delivered = (o.delivery_status && String(o.delivery_status).indexOf('완료')>=0) || !!o.delivery_date;
+    const cancelled = String(o.delivery_status||'').indexOf('취소')>=0;
     const dueDate = parseD(o.due_date);
     const dleft = (!delivered && dueDate) ? daysBetween(dueDate, today) : null;
     let status = 'green';
@@ -447,10 +448,11 @@ function buildData(){
       else if(dleft!==null && dleft<=30) status = 'amber-due';
     }
     o._delivered = delivered;
+    o._cancelled = cancelled;
     o._dleft = dleft;
     o._status = status;
     return o;
-  });
+  }).filter(o=>!o._cancelled);
 }
 
 function populateVendorOptions(){
