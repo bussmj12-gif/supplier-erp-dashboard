@@ -305,6 +305,10 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
       <div class="num" id="cnt-material">0</div>
       <div class="lbl">원소재 미발주 경고</div>
     </div>
+    <div class="card red" data-filter="overdue">
+      <div class="num" id="cnt-overdue">0</div>
+      <div class="lbl">납기 지연</div>
+    </div>
     <div class="card red" data-filter="due15">
       <div class="num" id="cnt-due15">0</div>
       <div class="lbl">납기 D-15 이내</div>
@@ -444,6 +448,7 @@ function buildData(){
     let status = 'green';
     if(!delivered){
       if(!o.material_order_date) status = 'red-material';
+      else if(dleft!==null && dleft<0) status = 'overdue';
       else if(dleft!==null && dleft<=15) status = 'red-due';
       else if(dleft!==null && dleft<=30) status = 'amber-due';
     }
@@ -495,17 +500,22 @@ function applyFilter(){
       if(hay.indexOf(t)<0) return false;
     }
     if(state.card==='material' && d._status!=='red-material') return false;
+    if(state.card==='overdue' && d._status!=='overdue') return false;
     if(state.card==='due15' && d._status!=='red-due') return false;
     if(state.card==='due30' && d._status!=='amber-due') return false;
     return true;
   });
 }
 
+function dDayLabel(n){
+  return n<0 ? ('납기 지연 '+(-n)+'일') : ('납기 D-'+n);
+}
 function statusLight(d){
   if(d._delivered) return {cls:'green', txt:'납품완료'};
   if(d._status==='red-material') return {cls:'red', txt:'원소재 미발주'};
-  if(d._status==='red-due') return {cls:'red', txt:'납기 D-'+d._dleft};
-  if(d._status==='amber-due') return {cls:'amber', txt:'납기 D-'+d._dleft};
+  if(d._status==='overdue') return {cls:'red', txt:dDayLabel(d._dleft)};
+  if(d._status==='red-due') return {cls:'red', txt:dDayLabel(d._dleft)};
+  if(d._status==='amber-due') return {cls:'amber', txt:dDayLabel(d._dleft)};
   if(d._dleft===null) return {cls:'gray', txt:'납기 미정'};
   return {cls:'green', txt:'정상 진행'};
 }
@@ -590,6 +600,7 @@ function renderPager(totalPages){
 function renderCards(){
   document.getElementById('cnt-all').textContent = DATA.length.toLocaleString();
   document.getElementById('cnt-material').textContent = DATA.filter(d=>!d._delivered && d._status==='red-material').length.toLocaleString();
+  document.getElementById('cnt-overdue').textContent = DATA.filter(d=>!d._delivered && d._status==='overdue').length.toLocaleString();
   document.getElementById('cnt-due15').textContent = DATA.filter(d=>!d._delivered && d._status==='red-due').length.toLocaleString();
   document.getElementById('cnt-due30').textContent = DATA.filter(d=>!d._delivered && d._status==='amber-due').length.toLocaleString();
   document.querySelectorAll('#cards .card').forEach(c=>{
