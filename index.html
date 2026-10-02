@@ -401,7 +401,21 @@ for(const k in KEY_SHORT) FULL_KEY[KEY_SHORT[k]] = k;
 // ===================== 공통 유틸 =====================
 const today = new Date(); today.setHours(0,0,0,0);
 function pad2(n){ return String(n).padStart(2,'0'); }
-function parseD(s){ if(!s) return null; const d = new Date(s+'T00:00:00'); return isNaN(d) ? null : d; }
+function parseD(s){
+  if(!s) return null;
+  const str = String(s).trim();
+  // "2027-06-10" 형식
+  let m = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  // "2027년 6월 10일" 형식 (공백 유무 모두 허용)
+  if(!m) m = str.match(/^(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+  if(m){
+    const y = +m[1], mo = +m[2], da = +m[3];
+    const d = new Date(y, mo-1, da);
+    return isNaN(d) ? null : d;
+  }
+  const d2 = new Date(str+'T00:00:00');
+  return isNaN(d2) ? null : d2;
+}
 function fmtD(s){ if(!s) return '<span class="dim">—</span>'; return s; }
 function daysBetween(a,b){ return Math.round((a-b)/86400000); }
 function fmtDateTime(iso){
