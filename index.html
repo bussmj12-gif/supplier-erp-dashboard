@@ -274,8 +274,6 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
       <span class="sync-badge" id="user-badge" style="display:none;"></span>
       <button class="btn-ghost" id="btn-refresh">↻ 새로고침</button>
       <button class="btn-ghost hidden" id="btn-admin-toggle">👤 사용자 관리</button>
-      <label class="btn-upload hidden" id="btn-upload-label" for="file-upload">⇪ 엑셀 업로드</label>
-      <input type="file" id="file-upload" accept=".xlsx,.xls" style="display:none;">
       <button class="btn-ghost" id="btn-logout">로그아웃</button>
     </div>
   </div>
@@ -321,7 +319,7 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
 
   <div class="filters">
     <select id="f-vendor"><option value="">전체 업체</option></select>
-    <select id="f-project"><option value="">전체 프로젝트</option></select>
+    <select id="f-outsource"><option value="">전체 외주가공업체</option></select>
     <input type="search" id="f-hull" placeholder="호선 검색 (예: TE34X62)">
     <input type="search" id="f-text" placeholder="수주번호 · 품명 · 도면번호 검색">
     <button class="clear-btn" id="btn-clear">필터 초기화</button>
@@ -335,7 +333,6 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
         <tr>
           <th></th>
           <th>업체</th>
-          <th>프로젝트</th>
           <th>호선</th>
           <th>수주번호 / 품명</th>
           <th>원소재 발주일</th>
@@ -352,53 +349,43 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
 
   <footer class="note">
     데이터는 Google Sheets에 저장되며, <b>엑셀 업로드</b> 버튼으로 갱신하면 이 화면을 보는 모든 사람에게 자동으로 반영됩니다. <b>납품완료 처리된 건은 업로드 시 자동으로 제외</b>됩니다(완료 이력은 원본 엑셀에서 확인).<br>
-    상태등 기준 — <b style="color:var(--red)">빨강</b>: 원소재 미발주 또는 납기 15일 이내 · <b style="color:var(--amber)">노랑</b>: 납기 16~30일 이내 · <b style="color:var(--green)">초록</b>: 정상 진행
+    상태등 기준 — <b style="color:var(--red)">빨강</b>: 원소재 미발주 / 납기 지연 / 납기 15일 이내 · <b style="color:var(--amber)">노랑</b>: 납기 16~30일 이내 · <b style="color:var(--green)">초록</b>: 정상 진행
   </footer>
 
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 // ===================== 설정 =====================
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyTeijfbin5E_w8rAjjw70z2OIIEKBEUk3uC6QjpNoKoSqZ5e1ElbgZNtbtwBZyt4X3/exec';
 
-// ===================== 엑셀 시트 매핑 (원본 수주대장 구조) =====================
-const SHEETS = {
-  'A-성일': ['성일', null],
-  'J-현대터보': ['현대터보', null],
-  'B-성문': ['성문', '일반'],
-  'BB-26,27년성문 72DF': ['성문', '72DF'],
-  'BC-26년성문 COMPENSATOR': ['성문', 'COMPENSATOR'],
-  'BD-성문- STX': ['성문', 'STX'],
-  'BE-성문 FGSS SKID(12척)': ['성문', 'FGSS SKID(12척)'],
-  'BF-성문-HPP 6TON SKID(12척)': ['성문', 'HPP 6TON SKID(12척)'],
-  'BG-성문-GMSCN-2600078(13척)': ['성문', 'GMSCN-2600078(13척)'],
-  'BH-성문 8292 SKID(6척)': ['성문', '8292 SKID(6척)'],
-  'C-한조': ['한조', null],
-  'D-B&S': ['B&S', null],
-  'E-Mt.H': ['Mt.H', null],
-  'F-정우': ['정우', null],
-  'G-기타': ['기타', null],
-  'H-C1K': ['C1K', null],
-  'I-동우에프지엠': ['동우에프지엠', null],
-  'K-덕천': ['덕천', null],
-};
-
+// ===================== 컬럼 매핑 (2026-10 확정 표준 컬럼) =====================
+// 가격/금액 관련 컬럼(소재단가, 외주단가, 수주단가, 수주금액, 마진율 등)은
+// 역할별 금액열람 권한 기능이 붙기 전까지 의도적으로 매핑하지 않음(= 전달되지 않음).
 const FIELD_MAP = {
-  '수주번호':'order_no', '수주처':'customer', '수주요일':'order_date', '납기일':'due_date',
-  '납품일':'delivery_date', '발주번호':'po_no', '품명':'item', '사이즈':'size', '재질':'material',
-  '도면번호':'drawing_no', '선급':'class_society', '호선':'hull', '수량':'qty',
-  '반입처':'delivery_site', '소재발주처':'material_vendor', '소재발주일':'material_order_date',
-  '소재반입일':'material_in_date', '외주입/출고일':'outsource_date', '외주출고일':'outsource_date',
-  '납품여부':'delivery_status',
+  '수주번호':'order_no', '관리번호':'mgmt_no', '수주처':'vendor', '수주일':'order_date',
+  '납기일':'due_date', '납품일':'delivery_date', '특이사항':'note', '선급':'class_society',
+  '검사신청':'inspect_request', '검사 진행상황':'inspect_status', '계약번호':'contract_no',
+  '문서/자료번호(H-TIMS)':'doc_no', '발주번호':'po_no', '호선':'hull', '품명':'item',
+  '재질':'material', '수량':'qty', '단위':'unit', '사이즈':'size', '도면번호':'drawing_no',
+  '비고':'remark', '반입처':'delivery_site', '수주담당자':'order_manager', 'Heat.NO':'heat_no',
+  '소재발주처':'material_vendor', '소재발주일':'material_order_date', '소재반입일':'material_in_date',
+  '작업지시서 작성날짜':'wo_date', '가공완료예상날짜':'process_due_date', '가공지연 일수':'process_delay_days',
+  '가공시작':'process_start', '가공완료':'process_end', '성적서업로드 날짜':'cert_upload_date',
+  '외주가공업체':'outsource_vendor', '외주출고일':'outsource_out_date', '외주입고일':'outsource_in_date',
+  '납품여부':'delivery_status', '납품월':'delivery_month',
 };
 
 const KEY_SHORT = {
-  vendor:'v', project:'pj', order_no:'no', customer:'cu', order_date:'od',
-  due_date:'dd', delivery_date:'dl', po_no:'po', item:'it', size:'sz',
-  material:'ma', drawing_no:'dw', class_society:'cs', hull:'hu', qty:'qt',
-  delivery_site:'ds', material_vendor:'mv', material_order_date:'mo',
-  material_in_date:'mi', outsource_date:'oc', delivery_status:'st',
+  order_no:'no', mgmt_no:'mg', vendor:'v', order_date:'od', due_date:'dd',
+  delivery_date:'dl', note:'nt', class_society:'cs', inspect_request:'ir',
+  inspect_status:'is', contract_no:'ct', doc_no:'dc', po_no:'po', hull:'hu',
+  item:'it', material:'ma', qty:'qt', unit:'un', size:'sz', drawing_no:'dw',
+  remark:'rm', delivery_site:'ds', order_manager:'om', heat_no:'hn',
+  material_vendor:'mv', material_order_date:'mo', material_in_date:'mi',
+  wo_date:'wo', process_due_date:'pd', process_delay_days:'pg', process_start:'ps',
+  process_end:'pe', cert_upload_date:'cu', outsource_vendor:'ov',
+  outsource_out_date:'oo', outsource_in_date:'oi', delivery_status:'st',
+  delivery_month:'dm',
 };
 const FULL_KEY = {};
 for(const k in KEY_SHORT) FULL_KEY[KEY_SHORT[k]] = k;
@@ -431,11 +418,11 @@ function isDeliveredRec(r){
 // ===================== 상태 =====================
 let RAW = [];
 let DATA = [];
-let state = { vendor:'', project:'', hull:'', text:'', card:'all', page:1 };
+let state = { vendor:'', outsource:'', hull:'', text:'', card:'all', page:1 };
 const PAGE_SIZE = 40;
 const openRows = new Set();
 const vendorSel = document.getElementById('f-vendor');
-const projectSel = document.getElementById('f-project');
+const outsourceSel = document.getElementById('f-outsource');
 
 function buildData(){
   DATA = RAW.map((r,i)=>{
@@ -472,24 +459,22 @@ function populateVendorOptions(){
   state.vendor = vendorSel.value;
 }
 
-function refreshProjectOptions(){
-  const cur = projectSel.value;
-  const v = vendorSel.value;
-  const projects = [...new Set(DATA.filter(d=>(!v || d.vendor===v) && d.project).map(d=>d.project))].sort((a,b)=>a.localeCompare(b,'ko'));
-  projectSel.innerHTML = '<option value="">전체 프로젝트</option>';
-  projects.forEach(p=>{
-    const opt = document.createElement('option'); opt.value = p; opt.textContent = p;
-    projectSel.appendChild(opt);
+function populateOutsourceOptions(){
+  const cur = outsourceSel.value;
+  const names = [...new Set(DATA.map(d=>d.outsource_vendor).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ko'));
+  outsourceSel.innerHTML = '<option value="">전체 외주가공업체</option>';
+  names.forEach(n=>{
+    const opt = document.createElement('option'); opt.value = n; opt.textContent = n;
+    outsourceSel.appendChild(opt);
   });
-  projectSel.style.display = projects.length ? '' : 'none';
-  projectSel.value = projects.includes(cur) ? cur : '';
-  state.project = projectSel.value;
+  outsourceSel.value = names.includes(cur) ? cur : '';
+  state.outsource = outsourceSel.value;
 }
 
 function applyFilter(){
   return DATA.filter(d=>{
     if(state.vendor && d.vendor!==state.vendor) return false;
-    if(state.project && d.project!==state.project) return false;
+    if(state.outsource && d.outsource_vendor!==state.outsource) return false;
     if(state.hull){
       const h = String(d.hull||'').toLowerCase();
       if(h.indexOf(state.hull.toLowerCase())<0) return false;
@@ -521,11 +506,18 @@ function statusLight(d){
 }
 
 const DETAIL_FIELDS = [
-  ['customer','수주처'], ['po_no','발주번호'], ['order_date','수주요일'],
-  ['size','사이즈'], ['material','재질'], ['drawing_no','도면번호'],
+  ['mgmt_no','관리번호'], ['po_no','발주번호'], ['order_date','수주일'],
+  ['contract_no','계약번호'], ['doc_no','문서/자료번호(H-TIMS)'],
+  ['size','사이즈'], ['material','재질'], ['unit','단위'], ['drawing_no','도면번호'],
   ['class_society','선급'], ['qty','수량'], ['delivery_site','반입처'],
-  ['material_vendor','소재발주처'], ['material_in_date','소재반입일'],
-  ['outsource_date','외주입/출고일'], ['delivery_date','납품일'], ['delivery_status','납품여부']
+  ['order_manager','수주담당자'], ['heat_no','Heat.NO'],
+  ['material_vendor','소재발주처'], ['material_order_date','소재발주일'], ['material_in_date','소재반입일'],
+  ['wo_date','작업지시서 작성날짜'], ['process_due_date','가공완료예상날짜'], ['process_delay_days','가공지연 일수'],
+  ['process_start','가공시작'], ['process_end','가공완료'], ['cert_upload_date','성적서업로드 날짜'],
+  ['outsource_vendor','외주가공업체'], ['outsource_out_date','외주출고일'], ['outsource_in_date','외주입고일'],
+  ['delivery_date','납품일'], ['delivery_status','납품여부'], ['delivery_month','납품월'],
+  ['inspect_request','검사신청'], ['inspect_status','검사 진행상황'],
+  ['note','특이사항'], ['remark','비고']
 ];
 
 function render(){
@@ -548,7 +540,6 @@ function render(){
     mainTr.innerHTML =
       '<td><button class="expand-btn" aria-label="상세보기">+</button></td>'+
       '<td>'+(d.vendor||'')+'</td>'+
-      '<td class="dim">'+(d.project||'—')+'</td>'+
       '<td class="hull">'+(d.hull||'<span class="dim">—</span>')+'</td>'+
       '<td><span class="mono">'+(d.order_no||'')+'</span><br><span class="dim">'+(d.item||'')+'</span></td>'+
       '<td class="mono">'+fmtD(d.material_order_date)+'</td>'+
@@ -563,7 +554,7 @@ function render(){
     const detTr = document.createElement('tr');
     detTr.className = 'detail-row' + (openRows.has(d.id) ? ' open' : '');
     const detTd = document.createElement('td');
-    detTd.colSpan = 8;
+    detTd.colSpan = 7;
     const inner = document.createElement('div');
     inner.className = 'detail-inner';
     DETAIL_FIELDS.forEach(([key,label])=>{
@@ -633,10 +624,10 @@ async function loadData(showLoading){
       RAW = json.records || [];
       buildData();
       populateVendorOptions();
-      refreshProjectOptions();
+      populateOutsourceOptions();
       state.page = 1;
       render();
-      setSyncState('ok', json.updatedAt ? ('마지막 업데이트 ' + fmtDateTime(json.updatedAt)) : '데이터 없음 — 엑셀을 업로드해 주세요');
+      setSyncState('ok', json.updatedAt ? ('마지막 업데이트 ' + fmtDateTime(json.updatedAt)) : '데이터 없음');
       return; // 성공하면 종료
     }catch(err){
       lastErr = err;
@@ -650,105 +641,14 @@ async function loadData(showLoading){
   setSyncState('error','불러오기 실패 — 연결 설정을 확인하세요');
 }
 
-// ===================== 엑셀 업로드 & 파싱 =====================
-function normalizeHeader(h){ return String(h).replace(/\n/g,'').trim(); }
-
-async function parseWorkbookToRecords(wb){
-  const out = [];
-  const sheetNames = Object.keys(SHEETS).filter(sn => wb.SheetNames.indexOf(sn) !== -1);
-  let done = 0;
-  for(const sheetName of sheetNames){
-    const pair = SHEETS[sheetName];
-    const vendor = pair[0], project = pair[1];
-    const ws = wb.Sheets[sheetName];
-    const aoa = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null});
-    if(aoa.length){
-      const header = aoa[0];
-      const colOf = {};
-      header.forEach((h,idx)=>{
-        if(h===null||h===undefined) return;
-        const key = normalizeHeader(h);
-        const field = FIELD_MAP[key];
-        if(field && !(field in colOf)) colOf[field] = idx;
-      });
-      if('order_no' in colOf){
-        for(let r=1;r<aoa.length;r++){
-          const row = aoa[r];
-          const orderNo = row[colOf.order_no];
-          if(orderNo===null||orderNo===undefined||orderNo==='') continue;
-          const rec = { vendor: vendor, project: project };
-          for(const field in colOf){
-            let val = row[colOf[field]];
-            if(val instanceof Date) val = dateCellToStr(val);
-            else if(typeof val==='string') val = val.trim();
-            if(val===null||val===''||val===undefined) continue;
-            rec[field] = val;
-          }
-          out.push(rec);
-        }
-      }
-    }
-    done++;
-    setSyncState('loading', '엑셀 분석 중… (시트 ' + done + '/' + sheetNames.length + ')');
-    // 브라우저에 제어권을 잠깐 돌려줘서 "응답 없음" 경고를 방지
-    await new Promise(resolve => setTimeout(resolve, 0));
-  }
-  return out;
-}
-
-function toShortRecord(rec){
-  const o = {};
-  for(const k in rec){
-    const v = rec[k];
-    if(v===null||v===undefined||v==='') continue;
-    o[KEY_SHORT[k]||k] = v;
-  }
-  return o;
-}
-
-async function handleFileUpload(file){
-  const label = document.getElementById('btn-upload-label');
-  label.classList.add('disabled');
-  setSyncState('loading','엑셀 파일 읽는 중…');
-  try{
-    await new Promise(resolve => setTimeout(resolve, 0)); // 상태 메시지가 먼저 화면에 그려지도록
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, {type:'array', cellDates:true});
-    let records = await parseWorkbookToRecords(wb);
-    records = records.filter(r => !isDeliveredRec(r));
-    if(!records.length){
-      throw new Error('인식 가능한 데이터가 없습니다. 시트 이름/구조를 확인해 주세요.');
-    }
-    const shortRecords = records.map(toShortRecord);
-
-    setSyncState('loading','업로드 중… (' + shortRecords.length.toLocaleString() + '건)');
-    const res = await fetch(SCRIPT_URL, {
-      method:'POST',
-      headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({records: shortRecords, username: AUTH.username, password: AUTH.password})
-    });
-    const result = await res.json();
-    if(!result.ok) throw new Error(result.error || '업로드 실패');
-
-    await loadData(false);
-    setSyncState('ok', shortRecords.length.toLocaleString() + '건 업로드 완료 · ' + fmtDateTime(new Date().toISOString()));
-  }catch(err){
-    console.error(err);
-    setSyncState('error', '업로드 실패: ' + err.message);
-  }finally{
-    label.classList.remove('disabled');
-    document.getElementById('file-upload').value = '';
-  }
-}
-
 // ===================== 이벤트 =====================
-vendorSel.addEventListener('change', ()=>{ state.vendor=vendorSel.value; state.project=''; refreshProjectOptions(); state.page=1; render(); });
-projectSel.addEventListener('change', ()=>{ state.project=projectSel.value; state.page=1; render(); });
+vendorSel.addEventListener('change', ()=>{ state.vendor=vendorSel.value; state.page=1; render(); });
+outsourceSel.addEventListener('change', ()=>{ state.outsource=outsourceSel.value; state.page=1; render(); });
 document.getElementById('f-hull').addEventListener('input', e=>{ state.hull=e.target.value; state.page=1; render(); });
 document.getElementById('f-text').addEventListener('input', e=>{ state.text=e.target.value; state.page=1; render(); });
 document.getElementById('btn-clear').addEventListener('click', ()=>{
-  state = { vendor:'', project:'', hull:'', text:'', card:'all', page:1 };
-  vendorSel.value=''; refreshProjectOptions(); projectSel.value='';
+  state = { vendor:'', outsource:'', hull:'', text:'', card:'all', page:1 };
+  vendorSel.value=''; outsourceSel.value='';
   document.getElementById('f-hull').value=''; document.getElementById('f-text').value='';
   render();
 });
@@ -760,10 +660,6 @@ document.getElementById('cards').addEventListener('click', e=>{
   render();
 });
 document.getElementById('btn-refresh').addEventListener('click', ()=>loadData(true));
-document.getElementById('file-upload').addEventListener('change', e=>{
-  const file = e.target.files[0];
-  if(file) handleFileUpload(file);
-});
 
 // ===================== 로그인 / 사용자 관리 =====================
 const AUTH_KEY = 'erp_auth_v1';
@@ -789,7 +685,6 @@ function showApp(){
   badge.style.display = '';
   const roleLabel = AUTH.role==='owner' ? '최고관리자' : (AUTH.role==='admin' ? '관리자' : '직원');
   badge.innerHTML = '<span class="dot ok"></span><span>' + AUTH.name + ' (' + roleLabel + ')</span>';
-  document.getElementById('btn-upload-label').classList.toggle('hidden', AUTH.role !== 'admin' && AUTH.role !== 'owner');
   document.getElementById('btn-admin-toggle').classList.toggle('hidden', AUTH.role !== 'owner');
   loadData(true);
 }
