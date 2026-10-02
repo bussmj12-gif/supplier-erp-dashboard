@@ -225,6 +225,14 @@ tr.detail-row.open .detail-inner{display:grid;}
 .dfield .dlbl{font-size:10.5px; text-transform:none; color:var(--ink-faint); margin-bottom:2px;}
 .dfield .dval{font-size:13px; color:var(--ink);}
 .dfield .dval.empty{color:var(--ink-faint);}
+.dfield .dval.note-hl{background:var(--amber-bg); border:1px solid var(--amber-line); color:var(--amber); font-weight:600; padding:4px 8px; border-radius:6px; display:inline-block;}
+
+.note-badge{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:16px; height:16px; border-radius:50%; margin-left:6px;
+  background:var(--amber-bg); color:var(--amber); border:1px solid var(--amber-line);
+  font-size:10px; font-weight:700; line-height:1; vertical-align:middle;
+}
 
 .pager{display:flex; align-items:center; justify-content:center; gap:6px; margin-top:16px; flex-wrap:wrap;}
 .pager button{
@@ -541,7 +549,7 @@ function render(){
       '<td><button class="expand-btn" aria-label="상세보기">+</button></td>'+
       '<td>'+(d.vendor||'')+'</td>'+
       '<td class="hull">'+(d.hull||'<span class="dim">—</span>')+'</td>'+
-      '<td><span class="mono">'+(d.order_no||'')+'</span><br><span class="dim">'+(d.item||'')+'</span></td>'+
+      '<td><span class="mono">'+(d.order_no||'')+'</span>'+(d.note?'<span class="note-badge" title="특이사항 있음">!</span>':'')+'<br><span class="dim">'+(d.item||'')+'</span></td>'+
       '<td class="mono">'+fmtD(d.material_order_date)+'</td>'+
       '<td class="mono">'+fmtD(d.due_date)+'</td>'+
       '<td><span class="light '+light.cls+'"><span class="lamp"></span><span class="txt">'+light.txt+'</span></span></td>';
@@ -559,7 +567,9 @@ function render(){
     inner.className = 'detail-inner';
     DETAIL_FIELDS.forEach(([key,label])=>{
       const val = d[key];
-      inner.innerHTML += '<div class="dfield"><div class="dlbl">'+label+'</div><div class="dval'+(val?'':' empty')+'">'+(val!==undefined && val!==null && val!=='' ? val : '—')+'</div></div>';
+      const isNote = (key==='note' && val);
+      const cls = 'dval'+(val?'':' empty')+(isNote?' note-hl':'');
+      inner.innerHTML += '<div class="dfield"><div class="dlbl">'+label+'</div><div class="'+cls+'">'+(val!==undefined && val!==null && val!=='' ? val : '—')+'</div></div>';
     });
     detTd.appendChild(inner);
     detTr.appendChild(detTd);
