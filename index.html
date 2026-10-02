@@ -683,7 +683,8 @@ function showApp(){
   document.getElementById('app').classList.remove('hidden');
   const badge = document.getElementById('user-badge');
   badge.style.display = '';
-  const roleLabel = AUTH.role==='owner' ? '최고관리자' : (AUTH.role==='admin' ? '관리자' : '직원');
+  const ROLE_LABELS = { owner:'최고관리자', admin:'관리자', production:'생산직' };
+  const roleLabel = ROLE_LABELS[AUTH.role] || '직원';
   badge.innerHTML = '<span class="dot ok"></span><span>' + AUTH.name + ' (' + roleLabel + ')</span>';
   document.getElementById('btn-admin-toggle').classList.toggle('hidden', AUTH.role !== 'owner');
   loadData(true);
