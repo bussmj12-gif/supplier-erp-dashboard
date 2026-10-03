@@ -112,6 +112,50 @@ body{
 .admin-msg.err{color:var(--red);}
 .admin-msg.ok{color:var(--green);}
 
+/* ---------- 문서용 품목 선택 패널 ---------- */
+.doc-panel{
+  background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px;
+  margin-bottom:18px;
+}
+.doc-panel h3{font-size:14px; margin:0 0 12px; display:flex; align-items:center; gap:10px;}
+.dp-count{font-size:11.5px; font-weight:600; color:var(--accent); background:var(--panel2);
+  border:1px solid var(--line); padding:2px 9px; border-radius:20px;}
+.dp-row{display:flex; gap:8px; flex-wrap:wrap; align-items:center;}
+.dp-row select{
+  font-family:var(--sans); font-size:13px; padding:8px 10px; border-radius:7px;
+  border:1px solid var(--line); background:var(--panel2); color:var(--ink);
+}
+.dp-search-wrap{position:relative; flex:1 1 260px; min-width:220px;}
+.dp-search-wrap input{
+  width:100%; box-sizing:border-box; font-family:var(--sans); font-size:13px; padding:8px 10px;
+  border-radius:7px; border:1px solid var(--line); background:var(--panel2); color:var(--ink);
+}
+.dp-search-wrap input:disabled{opacity:.5; cursor:not-allowed;}
+.dp-suggest{
+  position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:20;
+  background:var(--panel); border:1px solid var(--line); border-radius:8px;
+  max-height:260px; overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,.14);
+}
+.dp-suggest-item{padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--line); font-size:12.5px;}
+.dp-suggest-item:last-child{border-bottom:none;}
+.dp-suggest-item:hover{background:var(--panel2);}
+.dp-suggest-item .si-main{font-weight:600; color:var(--ink);}
+.dp-suggest-item .si-sub{color:var(--ink-dim); font-size:11.5px; margin-top:2px;}
+.dp-suggest-empty{padding:10px 12px; font-size:12.5px; color:var(--ink-faint);}
+.dp-selected-list{margin-top:14px; display:flex; flex-wrap:wrap; gap:8px;}
+.dp-empty{font-size:12.5px; color:var(--ink-faint); padding:4px 0;}
+.dp-chip{
+  display:flex; align-items:center; gap:8px; background:var(--panel2); border:1px solid var(--line);
+  border-radius:8px; padding:7px 8px 7px 12px; font-size:12.5px; max-width:320px;
+}
+.dp-chip .dc-main{font-weight:600; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.dp-chip .dc-sub{color:var(--ink-dim); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.dp-chip button{
+  border:none; background:none; color:var(--ink-faint); cursor:pointer; font-size:15px; line-height:1;
+  padding:2px 4px; flex:0 0 auto;
+}
+.dp-chip button:hover{color:var(--red);}
+
 /* ---------- header ---------- */
 .topbar{
   display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
@@ -282,6 +326,7 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
       <span class="sync-badge" id="user-badge" style="display:none;"></span>
       <button class="btn-ghost" id="btn-refresh">↻ 새로고침</button>
       <button class="btn-ghost hidden" id="btn-admin-toggle">👤 사용자 관리</button>
+      <button class="btn-ghost" id="btn-docitems-toggle">📦 품목 선택</button>
       <button class="btn-ghost" id="btn-logout">로그아웃</button>
     </div>
   </div>
@@ -300,6 +345,21 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
       <button id="btn-add-user">+ 사용자 추가</button>
     </div>
     <div class="admin-msg" id="admin-msg"></div>
+  </div>
+
+  <div class="doc-panel hidden" id="doc-panel">
+    <h3>문서용 품목 선택 <span class="dp-count" id="dp-count">0개 선택됨</span></h3>
+    <div class="dp-row">
+      <select id="dp-vendor"><option value="">업체를 먼저 선택하세요</option></select>
+      <div class="dp-search-wrap">
+        <input type="search" id="dp-search" placeholder="품명 · 수주번호 · 도면번호로 검색" disabled>
+        <div class="dp-suggest hidden" id="dp-suggest"></div>
+      </div>
+      <button class="clear-btn" id="dp-clear">선택 초기화</button>
+    </div>
+    <div class="dp-selected-list" id="dp-selected-list">
+      <div class="dp-empty">아직 선택된 품목이 없습니다. 업체를 선택하고 품목을 검색해서 추가하세요.</div>
+    </div>
   </div>
 
   <div class="cards" id="cards">
@@ -493,6 +553,117 @@ function populateOutsourceOptions(){
   state.outsource = outsourceSel.value;
 }
 
+// ===================== 문서용 품목 선택 =====================
+const dpVendorSel = document.getElementById('dp-vendor');
+const dpSearchInput = document.getElementById('dp-search');
+const dpSuggestBox = document.getElementById('dp-suggest');
+const dpSelectedListEl = document.getElementById('dp-selected-list');
+const dpCountEl = document.getElementById('dp-count');
+let docSelected = new Map(); // id -> record
+let dpSearchTimer = null;
+
+function populateDocVendorOptions(){
+  const cur = dpVendorSel.value;
+  const vendors = [...new Set(DATA.map(d=>d.vendor).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ko'));
+  dpVendorSel.innerHTML = '<option value="">업체를 먼저 선택하세요</option>';
+  vendors.forEach(v=>{
+    const opt = document.createElement('option'); opt.value = v; opt.textContent = v;
+    dpVendorSel.appendChild(opt);
+  });
+  dpVendorSel.value = vendors.includes(cur) ? cur : '';
+}
+
+function dpCloseSuggest(){
+  dpSuggestBox.classList.add('hidden');
+  dpSuggestBox.innerHTML = '';
+}
+
+function dpRunSearch(){
+  const vendor = dpVendorSel.value;
+  const q = dpSearchInput.value.trim().toLowerCase();
+  if(!vendor || !q){ dpCloseSuggest(); return; }
+  const matches = DATA.filter(d=>{
+    if(d.vendor !== vendor) return false;
+    if(docSelected.has(d.id)) return false;
+    const hay = [d.order_no, d.item, d.drawing_no].map(v=>String(v||'').toLowerCase()).join(' ');
+    return hay.indexOf(q) >= 0;
+  }).slice(0, 20);
+
+  if(matches.length === 0){
+    dpSuggestBox.innerHTML = '<div class="dp-suggest-empty">일치하는 품목이 없습니다.</div>';
+  }else{
+    dpSuggestBox.innerHTML = '';
+    matches.forEach(d=>{
+      const row = document.createElement('div');
+      row.className = 'dp-suggest-item';
+      row.innerHTML = '<div class="si-main">'+(d.order_no||'(수주번호 없음)')+' · '+(d.item||'')+'</div>'+
+        '<div class="si-sub">'+(d.hull||'')+(d.drawing_no?' · 도면 '+d.drawing_no:'')+'</div>';
+      row.addEventListener('click', ()=>dpAddItem(d));
+      dpSuggestBox.appendChild(row);
+    });
+  }
+  dpSuggestBox.classList.remove('hidden');
+}
+
+function dpAddItem(d){
+  docSelected.set(d.id, d);
+  dpSearchInput.value = '';
+  dpCloseSuggest();
+  dpSearchInput.focus();
+  dpRenderSelected();
+}
+
+function dpRemoveItem(id){
+  docSelected.delete(id);
+  dpRenderSelected();
+}
+
+function dpRenderSelected(){
+  dpCountEl.textContent = docSelected.size + '개 선택됨';
+  if(docSelected.size === 0){
+    dpSelectedListEl.innerHTML = '<div class="dp-empty">아직 선택된 품목이 없습니다. 업체를 선택하고 품목을 검색해서 추가하세요.</div>';
+    return;
+  }
+  dpSelectedListEl.innerHTML = '';
+  docSelected.forEach(d=>{
+    const chip = document.createElement('div');
+    chip.className = 'dp-chip';
+    chip.innerHTML = '<div><div class="dc-main">'+(d.order_no||'(수주번호 없음)')+' · '+(d.item||'')+'</div>'+
+      '<div class="dc-sub">'+(d.vendor||'')+(d.hull?' · '+d.hull:'')+'</div></div>'+
+      '<button aria-label="제거">×</button>';
+    chip.querySelector('button').addEventListener('click', ()=>dpRemoveItem(d.id));
+    dpSelectedListEl.appendChild(chip);
+  });
+}
+
+dpVendorSel.addEventListener('change', ()=>{
+  dpSearchInput.disabled = !dpVendorSel.value;
+  dpSearchInput.value = '';
+  dpCloseSuggest();
+});
+
+dpSearchInput.addEventListener('input', ()=>{
+  clearTimeout(dpSearchTimer);
+  dpSearchTimer = setTimeout(dpRunSearch, 180);
+});
+
+dpSearchInput.addEventListener('focus', ()=>{
+  if(dpSearchInput.value.trim()) dpRunSearch();
+});
+
+document.addEventListener('click', (e)=>{
+  if(!e.target.closest || !e.target.closest('.dp-search-wrap')) dpCloseSuggest();
+});
+
+document.getElementById('dp-clear').addEventListener('click', ()=>{
+  docSelected.clear();
+  dpRenderSelected();
+});
+
+document.getElementById('btn-docitems-toggle').addEventListener('click', ()=>{
+  document.getElementById('doc-panel').classList.toggle('hidden');
+});
+
 function applyFilter(){
   return DATA.filter(d=>{
     if(state.vendor && d.vendor!==state.vendor) return false;
@@ -649,6 +820,7 @@ async function loadData(showLoading){
       buildData();
       populateVendorOptions();
       populateOutsourceOptions();
+      populateDocVendorOptions();
       state.page = 1;
       render();
       setSyncState('ok', json.updatedAt ? ('마지막 업데이트 ' + fmtDateTime(json.updatedAt)) : '데이터 없음');
