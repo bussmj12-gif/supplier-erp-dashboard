@@ -611,6 +611,11 @@ function dpAddItem(d){
   dpCloseSuggest();
   dpSearchInput.focus();
   dpRenderSelected();
+  // 아래 전체 목록 검색어도 함께 비움
+  document.getElementById('f-text').value = '';
+  state.text = '';
+  state.page = 1;
+  render();
 }
 
 function dpRemoveItem(id){
@@ -640,11 +645,25 @@ dpVendorSel.addEventListener('change', ()=>{
   dpSearchInput.disabled = !dpVendorSel.value;
   dpSearchInput.value = '';
   dpCloseSuggest();
+  // 아래 전체 목록도 같은 업체로 동기화해서 바로 관련 건만 보이게 함
+  vendorSel.value = dpVendorSel.value;
+  state.vendor = vendorSel.value;
+  document.getElementById('f-text').value = '';
+  state.text = '';
+  state.page = 1;
+  render();
 });
 
 dpSearchInput.addEventListener('input', ()=>{
   clearTimeout(dpSearchTimer);
-  dpSearchTimer = setTimeout(dpRunSearch, 180);
+  dpSearchTimer = setTimeout(()=>{
+    dpRunSearch();
+    // 아래 전체 목록도 같은 검색어로 동기화
+    document.getElementById('f-text').value = dpSearchInput.value;
+    state.text = dpSearchInput.value;
+    state.page = 1;
+    render();
+  }, 180);
 });
 
 dpSearchInput.addEventListener('focus', ()=>{
