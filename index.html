@@ -13,6 +13,7 @@
   --red:#c1381f; --red-bg:#fbe6e2; --red-line:#e8b6ab;
   --amber:#a9660b; --amber-bg:#fbeecb; --amber-line:#e9c987;
   --green:#2c7a4b; --green-bg:#e3f2e8; --green-line:#b6dcc4;
+  --purple:#7a3fae; --purple-bg:#f1e6fb; --purple-line:#d4b6ec;
   --gray-bg:#e8eaec; --gray-line:#d3d8dc;
   --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
@@ -28,6 +29,7 @@
     --red:#ff8069; --red-bg:#3a1a15; --red-line:#5c2a20;
     --amber:#f0b755; --amber-bg:#3a2c0f; --amber-line:#5c481c;
     --green:#7cd39c; --green-bg:#12301f; --green-line:#254f36;
+    --purple:#c89eef; --purple-bg:#2a1a3a; --purple-line:#452a5c;
     --gray-bg:#232b32; --gray-line:#333e47;
   }
 }
@@ -38,6 +40,7 @@
   --red:#ff8069; --red-bg:#3a1a15; --red-line:#5c2a20;
   --amber:#f0b755; --amber-bg:#3a2c0f; --amber-line:#5c481c;
   --green:#7cd39c; --green-bg:#12301f; --green-line:#254f36;
+  --purple:#c89eef; --purple-bg:#2a1a3a; --purple-line:#452a5c;
   --gray-bg:#232b32; --gray-line:#333e47;
 }
 html,body{height:100%;}
@@ -192,7 +195,7 @@ body{
 .btn-upload.disabled{opacity:.5; pointer-events:none;}
 
 /* ---------- summary cards ---------- */
-.cards{display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:18px;}
+.cards{display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:18px;}
 @media (max-width:760px){.cards{grid-template-columns:repeat(2,1fr);}}
 .card{
   background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px;
@@ -205,6 +208,7 @@ body{
 .card.red .num{color:var(--red);}
 .card.amber .num{color:var(--amber);}
 .card.green .num{color:var(--green);}
+.card.purple .num{color:var(--purple);}
 
 /* ---------- filter bar ---------- */
 .filters{
@@ -247,11 +251,14 @@ tbody tr:last-child td{border-bottom:none;}
 .light.red .lamp{background:var(--red); box-shadow:0 0 0 3px var(--red-bg);}
 .light.amber .lamp{background:var(--amber); box-shadow:0 0 0 3px var(--amber-bg);}
 .light.green .lamp{background:var(--green); box-shadow:0 0 0 3px var(--green-bg);}
+.light.purple .lamp{background:var(--purple); box-shadow:0 0 0 3px var(--purple-bg);}
+td.date-err{background:var(--purple-bg); color:var(--purple); border-radius:6px; text-decoration:underline wavy var(--purple);}
 .light.gray .lamp{background:var(--ink-faint); box-shadow:0 0 0 3px var(--gray-bg);}
 .light .txt{font-size:12px; font-weight:600;}
 .light.red .txt{color:var(--red);}
 .light.amber .txt{color:var(--amber);}
 .light.green .txt{color:var(--green);}
+.light.purple .txt{color:var(--purple);}
 .light.gray .txt{color:var(--ink-faint);}
 
 .expand-btn{
@@ -383,6 +390,10 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
       <div class="num" id="cnt-due30">0</div>
       <div class="lbl">납기 D-30 이내</div>
     </div>
+    <div class="card purple" data-filter="dateerr">
+      <div class="num" id="cnt-dateerr">0</div>
+      <div class="lbl">⚠ 납기일 형식 오류</div>
+    </div>
   </div>
 
   <div class="filters">
@@ -513,10 +524,12 @@ function buildData(){
     const delivered = (o.delivery_status && String(o.delivery_status).indexOf('완료')>=0) || !!o.delivery_date;
     const cancelled = String(o.delivery_status||'').indexOf('취소')>=0;
     const dueDate = parseD(o.due_date);
+    const dateError = !!(o.due_date && !dueDate); // 값은 있는데 날짜로 인식이 안 되는 경우 (입력 형식 오류)
     const dleft = (!delivered && dueDate) ? daysBetween(dueDate, today) : null;
     let status = 'green';
     if(!delivered){
       if(!o.material_order_date) status = 'red-material';
+      else if(dateError) status = 'date-error';
       else if(dleft!==null && dleft<0) status = 'overdue';
       else if(dleft!==null && dleft<=15) status = 'red-due';
       else if(dleft!==null && dleft<=30) status = 'amber-due';
@@ -524,6 +537,7 @@ function buildData(){
     o._delivered = delivered;
     o._cancelled = cancelled;
     o._dleft = dleft;
+    o._dateError = dateError;
     o._status = status;
     return o;
   }).filter(o=>!o._cancelled);
@@ -700,6 +714,7 @@ function applyFilter(){
     if(state.card==='overdue' && d._status!=='overdue') return false;
     if(state.card==='due15' && d._status!=='red-due') return false;
     if(state.card==='due30' && d._status!=='amber-due') return false;
+    if(state.card==='dateerr' && d._status!=='date-error') return false;
     return true;
   });
 }
@@ -710,6 +725,7 @@ function dDayLabel(n){
 function statusLight(d){
   if(d._delivered) return {cls:'green', txt:'납품완료'};
   if(d._status==='red-material') return {cls:'red', txt:'원소재 미발주'};
+  if(d._status==='date-error') return {cls:'purple', txt:'⚠ 납기일 형식 오류'};
   if(d._status==='overdue') return {cls:'red', txt:dDayLabel(d._dleft)};
   if(d._status==='red-due') return {cls:'red', txt:dDayLabel(d._dleft)};
   if(d._status==='amber-due') return {cls:'amber', txt:dDayLabel(d._dleft)};
@@ -755,8 +771,8 @@ function render(){
       '<td class="hull">'+(d.hull||'<span class="dim">—</span>')+'</td>'+
       '<td><span class="mono">'+(d.order_no||'')+'</span>'+(d.note?'<span class="note-badge" title="특이사항 있음">!</span>':'')+'<br><span class="dim">'+(d.item||'')+'</span></td>'+
       '<td class="mono">'+fmtD(d.material_order_date)+'</td>'+
-      '<td class="mono">'+fmtD(d.due_date)+'</td>'+
-      '<td><span class="light '+light.cls+'"><span class="lamp"></span><span class="txt">'+light.txt+'</span></span></td>';
+      '<td class="mono'+(d._dateError?' date-err':'')+'"'+(d._dateError?' title="원본 값: '+String(d.due_date)+'"':'')+'>'+fmtD(d.due_date)+'</td>'+
+      '<td><span class="light '+light.cls+'"'+(d._dateError?' title="구글시트의 납기일 칸을 날짜 형식으로 다시 입력해주세요"':'')+'><span class="lamp"></span><span class="txt">'+light.txt+'</span></span></td>';
     mainTr.addEventListener('click', ()=>{
       if(openRows.has(d.id)) openRows.delete(d.id); else openRows.add(d.id);
       render();
@@ -808,6 +824,7 @@ function renderCards(){
   document.getElementById('cnt-overdue').textContent = DATA.filter(d=>!d._delivered && d._status==='overdue').length.toLocaleString();
   document.getElementById('cnt-due15').textContent = DATA.filter(d=>!d._delivered && d._status==='red-due').length.toLocaleString();
   document.getElementById('cnt-due30').textContent = DATA.filter(d=>!d._delivered && d._status==='amber-due').length.toLocaleString();
+  document.getElementById('cnt-dateerr').textContent = DATA.filter(d=>!d._delivered && d._status==='date-error').length.toLocaleString();
   document.querySelectorAll('#cards .card').forEach(c=>{
     c.classList.toggle('active', c.dataset.filter===state.card);
   });
