@@ -114,6 +114,12 @@ body{
 .admin-msg{font-size:12px; margin-top:8px; min-height:16px;}
 .admin-msg.err{color:var(--red);}
 .admin-msg.ok{color:var(--green);}
+.dp-action-row{display:flex; align-items:center; gap:10px; margin-top:12px;}
+.dp-action-row button{
+  background:var(--accent); color:#fff; border:none; border-radius:7px; padding:9px 16px;
+  font-size:13px; font-weight:600; cursor:pointer;
+}
+.dp-action-row button:disabled{opacity:.5; cursor:not-allowed;}
 
 /* ---------- 문서용 품목 선택 패널 ---------- */
 .doc-panel{
@@ -368,6 +374,10 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
     </div>
     <div class="dp-selected-list" id="dp-selected-list">
       <div class="dp-empty">아직 선택된 품목이 없습니다. 업체를 선택하고 품목을 검색해서 추가하세요.</div>
+    </div>
+    <div class="dp-action-row">
+      <button id="btn-gen-quote" class="hidden">📄 견적서 생성</button>
+      <span class="admin-msg" id="quote-msg"></span>
     </div>
   </div>
 
@@ -705,6 +715,33 @@ document.getElementById('dp-clear').addEventListener('click', ()=>{
   dpRenderSelected();
 });
 
+const quoteBtn = document.getElementById('btn-gen-quote');
+const quoteMsg = document.getElementById('quote-msg');
+quoteBtn.addEventListener('click', async ()=>{
+  quoteMsg.className = 'admin-msg';
+  if(docSelected.size === 0){
+    quoteMsg.textContent = '품목을 먼저 선택하세요.';
+    quoteMsg.className = 'admin-msg err';
+    return;
+  }
+  const vendor = dpVendorSel.value || [...docSelected.values()][0].vendor || '';
+  const mgmtNos = [...docSelected.values()].map(d=>d.mgmt_no).filter(Boolean);
+  quoteBtn.disabled = true;
+  quoteMsg.textContent = '견적서 생성 중…';
+  try{
+    const result = await apiAdminPost({ action:'generateQuote', vendor, mgmtNos });
+    if(!result.ok) throw new Error(result.error || '생성 실패');
+    quoteMsg.textContent = '생성 완료! 새 탭에서 엽니다.';
+    quoteMsg.className = 'admin-msg ok';
+    window.open(result.sheetUrl, '_blank');
+  }catch(err){
+    quoteMsg.textContent = err.message || '생성 중 오류가 발생했습니다.';
+    quoteMsg.className = 'admin-msg err';
+  }finally{
+    quoteBtn.disabled = false;
+  }
+});
+
 document.getElementById('btn-docitems-toggle').addEventListener('click', ()=>{
   document.getElementById('doc-panel').classList.toggle('hidden');
 });
@@ -934,6 +971,7 @@ function showApp(){
   const roleLabel = ROLE_LABELS[AUTH.role] || '직원';
   badge.innerHTML = '<span class="dot ok"></span><span>' + AUTH.name + ' (' + roleLabel + ')</span>';
   document.getElementById('btn-admin-toggle').classList.toggle('hidden', AUTH.role !== 'owner');
+  document.getElementById('btn-gen-quote').classList.toggle('hidden', !(AUTH.role==='owner' || AUTH.role==='admin'));
   loadData(true);
 }
 
