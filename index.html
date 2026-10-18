@@ -379,6 +379,18 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
       <button id="btn-gen-quote" class="hidden">📄 견적서 생성</button>
       <span class="admin-msg" id="quote-msg"></span>
     </div>
+    <div class="dp-action-row">
+      <select id="poTypeSel" style="padding:8px;border-radius:7px;border:1px solid #ccc;">
+        <option value="material">원자재 구입용</option>
+        <option value="outsource">외주가공용</option>
+      </select>
+      <button id="btn-gen-po" class="hidden">📦 발주서 생성</button>
+      <span class="admin-msg" id="po-msg"></span>
+    </div>
+    <div class="dp-action-row">
+      <button id="btn-gen-wo" class="hidden">🛠 작업지시서 생성</button>
+      <span class="admin-msg" id="wo-msg"></span>
+    </div>
   </div>
 
   <div class="cards" id="cards">
@@ -742,6 +754,59 @@ quoteBtn.addEventListener('click', async ()=>{
   }
 });
 
+const poBtn = document.getElementById('btn-gen-po');
+const poMsg = document.getElementById('po-msg');
+const poTypeSel = document.getElementById('poTypeSel');
+poBtn.addEventListener('click', async ()=>{
+  poMsg.className = 'admin-msg';
+  if(docSelected.size === 0){
+    poMsg.textContent = '품목을 먼저 선택하세요.';
+    poMsg.className = 'admin-msg err';
+    return;
+  }
+  const mgmtNos = [...docSelected.values()].map(d=>d.mgmt_no).filter(Boolean);
+  poBtn.disabled = true;
+  poMsg.textContent = '발주서 생성 중…';
+  try{
+    const result = await apiAdminPost({ action:'generatePO', mgmtNos, poType: poTypeSel.value });
+    if(!result.ok) throw new Error(result.error || '생성 실패');
+    poMsg.textContent = '생성 완료! 새 탭에서 엽니다.';
+    poMsg.className = 'admin-msg ok';
+    window.open(result.sheetUrl, '_blank');
+  }catch(err){
+    poMsg.textContent = err.message || '생성 중 오류가 발생했습니다.';
+    poMsg.className = 'admin-msg err';
+  }finally{
+    poBtn.disabled = false;
+  }
+});
+
+const woBtn = document.getElementById('btn-gen-wo');
+const woMsg = document.getElementById('wo-msg');
+woBtn.addEventListener('click', async ()=>{
+  woMsg.className = 'admin-msg';
+  if(docSelected.size === 0){
+    woMsg.textContent = '품목을 먼저 선택하세요.';
+    woMsg.className = 'admin-msg err';
+    return;
+  }
+  const mgmtNos = [...docSelected.values()].map(d=>d.mgmt_no).filter(Boolean);
+  woBtn.disabled = true;
+  woMsg.textContent = '작업지시서 생성 중… (품목 수만큼 각각 생성됩니다)';
+  try{
+    const result = await apiAdminPost({ action:'generateWorkOrder', mgmtNos });
+    if(!result.ok) throw new Error(result.error || '생성 실패');
+    woMsg.innerHTML = '생성 완료: ' + result.sheetUrls.map(s=>'<a href="'+s.url+'" target="_blank">'+s.mg+'</a>').join(', ');
+    woMsg.className = 'admin-msg ok';
+    window.open(result.sheetUrls[0].url, '_blank');
+  }catch(err){
+    woMsg.textContent = err.message || '생성 중 오류가 발생했습니다.';
+    woMsg.className = 'admin-msg err';
+  }finally{
+    woBtn.disabled = false;
+  }
+});
+
 document.getElementById('btn-docitems-toggle').addEventListener('click', ()=>{
   document.getElementById('doc-panel').classList.toggle('hidden');
 });
@@ -972,6 +1037,8 @@ function showApp(){
   badge.innerHTML = '<span class="dot ok"></span><span>' + AUTH.name + ' (' + roleLabel + ')</span>';
   document.getElementById('btn-admin-toggle').classList.toggle('hidden', AUTH.role !== 'owner');
   document.getElementById('btn-gen-quote').classList.toggle('hidden', !(AUTH.role==='owner' || AUTH.role==='admin'));
+  document.getElementById('btn-gen-po').classList.toggle('hidden', !(AUTH.role==='owner' || AUTH.role==='admin'));
+  document.getElementById('btn-gen-wo').classList.toggle('hidden', !(AUTH.role==='owner' || AUTH.role==='admin'));
   loadData(true);
 }
 
