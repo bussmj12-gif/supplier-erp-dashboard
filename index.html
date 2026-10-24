@@ -120,6 +120,12 @@ body{
   font-size:13px; font-weight:600; cursor:pointer;
 }
 .dp-action-row button:disabled{opacity:.5; cursor:not-allowed;}
+.process-btn{
+  background:#eee; color:#333; border:1px solid #ccc; border-radius:6px; padding:6px 10px;
+  font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap;
+}
+.process-btn.done{background:var(--green,#2e7d32); color:#fff; border-color:transparent;}
+.process-btn:disabled{opacity:.5; cursor:not-allowed;}
 
 /* ---------- 문서용 품목 선택 패널 ---------- */
 .doc-panel{
@@ -906,9 +912,24 @@ const DETAIL_FIELDS = [
 
 // 생산직 전용 간결 화면: 작업지시서가 발행된 품목만, 생산에 필요한 항목만 표시
 const PRODUCTION_THEAD =
-  '<tr><th>관리번호</th><th>품명</th><th>재질</th><th>사이즈</th><th>수량</th><th>도면번호</th><th>납기일</th></tr>';
+  '<tr><th>관리번호</th><th>품명</th><th>재질</th><th>사이즈</th><th>수량</th><th>도면번호</th><th>납기일</th><th>가공시작</th><th>가공완료</th></tr>';
 const DEFAULT_THEAD =
   '<tr><th></th><th>업체</th><th>호선</th><th>수주번호 / 품명</th><th>원소재 발주일</th><th>납기일</th><th>상태</th></tr>';
+
+async function toggleProcess_(mgmtNo, field, btn){
+  btn.disabled = true;
+  const prevText = btn.textContent;
+  btn.textContent = '처리 중…';
+  try{
+    const result = await apiAdminPost({ action:'markProcess', mgmtNo, field });
+    if(!result.ok) throw new Error(result.error || '처리 실패');
+    await loadData(false);
+  }catch(err){
+    alert(err.message || '처리 중 오류가 발생했습니다.');
+    btn.textContent = prevText;
+    btn.disabled = false;
+  }
+}
 
 function renderProductionRows(tbody, pageItems){
   pageItems.forEach(d=>{
@@ -921,7 +942,24 @@ function renderProductionRows(tbody, pageItems){
       '<td>'+(d.size||'<span class="dim">—</span>')+'</td>'+
       '<td>'+(d.qty||'')+'</td>'+
       '<td class="mono">'+(d.drawing_no||'<span class="dim">—</span>')+'</td>'+
-      '<td class="mono'+(d._dateError?' date-err':'')+'">'+fmtD(d.due_date)+'</td>';
+      '<td class="mono'+(d._dateError?' date-err':'')+'">'+fmtD(d.due_date)+'</td>'+
+      '<td></td>'+
+      '<td></td>';
+    const tdStart = tr.children[7];
+    const tdEnd = tr.children[8];
+
+    const startBtn = document.createElement('button');
+    startBtn.className = 'process-btn' + (d.process_start ? ' done' : '');
+    startBtn.textContent = d.process_start ? ('✓ '+fmtD(d.process_start)) : '가공시작';
+    startBtn.addEventListener('click', ()=>toggleProcess_(d.mgmt_no, 'start', startBtn));
+    tdStart.appendChild(startBtn);
+
+    const endBtn = document.createElement('button');
+    endBtn.className = 'process-btn' + (d.process_end ? ' done' : '');
+    endBtn.textContent = d.process_end ? ('✓ '+fmtD(d.process_end)) : '가공완료';
+    endBtn.addEventListener('click', ()=>toggleProcess_(d.mgmt_no, 'end', endBtn));
+    tdEnd.appendChild(endBtn);
+
     tbody.appendChild(tr);
   });
 }
