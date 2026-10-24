@@ -440,7 +440,7 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
 
   <div class="table-scroll">
     <table>
-      <thead>
+      <thead id="thead-row">
         <tr>
           <th></th>
           <th>업체</th>
@@ -848,6 +848,11 @@ document.getElementById('btn-docitems-toggle').addEventListener('click', ()=>{
 
 function applyFilter(){
   return DATA.filter(d=>{
+    // 생산직: 작업지시서가 발행(작성날짜 기입)된 품목만, 가공완료되면 목록에서 빠짐
+    if(AUTH && AUTH.role==='production'){
+      if(!d.wo_date) return false;
+      if(d.process_end) return false;
+    }
     if(state.vendor && d.vendor!==state.vendor) return false;
     if(state.outsource && d.outsource_vendor!==state.outsource) return false;
     if(state.hull){
@@ -899,7 +904,32 @@ const DETAIL_FIELDS = [
   ['note','특이사항'], ['remark','비고']
 ];
 
+// 생산직 전용 간결 화면: 작업지시서가 발행된 품목만, 생산에 필요한 항목만 표시
+const PRODUCTION_THEAD =
+  '<tr><th>관리번호</th><th>품명</th><th>재질</th><th>사이즈</th><th>수량</th><th>도면번호</th><th>납기일</th></tr>';
+const DEFAULT_THEAD =
+  '<tr><th></th><th>업체</th><th>호선</th><th>수주번호 / 품명</th><th>원소재 발주일</th><th>납기일</th><th>상태</th></tr>';
+
+function renderProductionRows(tbody, pageItems){
+  pageItems.forEach(d=>{
+    const tr = document.createElement('tr');
+    tr.className = 'main-row';
+    tr.innerHTML =
+      '<td class="mono">'+(d.mgmt_no||'')+'</td>'+
+      '<td>'+(d.item||'')+'</td>'+
+      '<td>'+(d.material||'<span class="dim">—</span>')+'</td>'+
+      '<td>'+(d.size||'<span class="dim">—</span>')+'</td>'+
+      '<td>'+(d.qty||'')+'</td>'+
+      '<td class="mono">'+(d.drawing_no||'<span class="dim">—</span>')+'</td>'+
+      '<td class="mono'+(d._dateError?' date-err':'')+'">'+fmtD(d.due_date)+'</td>';
+    tbody.appendChild(tr);
+  });
+}
+
 function render(){
+  const isProduction = !!(AUTH && AUTH.role==='production');
+  document.getElementById('thead-row').innerHTML = isProduction ? PRODUCTION_THEAD : DEFAULT_THEAD;
+
   const filtered = applyFilter();
   document.getElementById('result-count').textContent = filtered.length.toLocaleString()+'건 표시 (전체 '+DATA.length.toLocaleString()+'건 중)';
 
@@ -911,6 +941,13 @@ function render(){
   const tbody = document.getElementById('tbody');
   tbody.innerHTML = '';
   document.getElementById('empty-state').style.display = filtered.length ? 'none' : 'block';
+
+  if(isProduction){
+    renderProductionRows(tbody, pageItems);
+    renderPager(totalPages);
+    renderCards();
+    return;
+  }
 
   pageItems.forEach(d=>{
     const light = statusLight(d);
