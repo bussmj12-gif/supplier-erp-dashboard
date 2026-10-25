@@ -126,6 +126,11 @@ body{
 }
 .process-btn.done{background:var(--green,#2e7d32); color:#fff; border-color:transparent;}
 .process-btn:disabled{opacity:.5; cursor:not-allowed;}
+#btn-do-upload{
+  background:var(--accent); color:#fff; border:none; border-radius:7px; padding:9px 16px;
+  font-size:13px; font-weight:600; cursor:pointer; margin-left:10px;
+}
+#btn-do-upload:disabled{opacity:.5; cursor:not-allowed;}
 
 /* ---------- 문서용 품목 선택 패널 ---------- */
 .doc-panel{
@@ -312,6 +317,7 @@ tr.detail-row.open .detail-inner{display:grid;}
 
 footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-height:1.6;}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -347,6 +353,7 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
       <span class="sync-badge" id="user-badge" style="display:none;"></span>
       <button class="btn-ghost" id="btn-refresh">↻ 새로고침</button>
       <button class="btn-ghost hidden" id="btn-admin-toggle">👤 사용자 관리</button>
+      <button class="btn-ghost hidden" id="btn-upload-toggle">➕ 새 수주 업로드</button>
       <button class="btn-ghost" id="btn-docitems-toggle">📦 품목 선택</button>
       <button class="btn-ghost" id="btn-logout">로그아웃</button>
     </div>
@@ -366,6 +373,17 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
       <button id="btn-add-user">+ 사용자 추가</button>
     </div>
     <div class="admin-msg" id="admin-msg"></div>
+  </div>
+
+  <div class="admin-panel hidden" id="upload-panel">
+    <h3>새 수주 업로드</h3>
+    <p style="font-size:12.5px; color:var(--ink-dim); margin:0 0 10px;">
+      orders_new 시트와 같은 컬럼 제목(헤더)을 첫 줄에 쓴 엑셀 파일을 올리면, <b>새로 추가되는 행만</b> 시트 맨 아래에 추가됩니다
+      (기존 행은 건드리지 않음). 관리번호를 비워두면 자동으로 다음 번호가 부여됩니다.
+    </p>
+    <input type="file" id="upload-file-input" accept=".xlsx,.xls">
+    <button id="btn-do-upload">업로드</button>
+    <div class="admin-msg" id="upload-msg"></div>
   </div>
 
   <div class="doc-panel hidden" id="doc-panel">
@@ -1150,6 +1168,7 @@ function showApp(){
   document.getElementById('btn-gen-po').classList.toggle('hidden', !(AUTH.role==='owner' || AUTH.role==='admin'));
   document.getElementById('btn-gen-wo').classList.toggle('hidden', !(AUTH.role==='owner' || AUTH.role==='admin'));
   document.getElementById('btn-gen-ds').classList.toggle('hidden', !(AUTH.role==='owner' || AUTH.role==='admin'));
+  document.getElementById('btn-upload-toggle').classList.toggle('hidden', !(AUTH.role==='owner' || AUTH.role==='admin'));
   loadData(true);
 }
 
@@ -1190,6 +1209,53 @@ document.getElementById('btn-admin-toggle').addEventListener('click', ()=>{
   const panel = document.getElementById('admin-panel');
   panel.classList.toggle('hidden');
   if(!panel.classList.contains('hidden')) loadUserList();
+});
+
+document.getElementById('btn-upload-toggle').addEventListener('click', ()=>{
+  document.getElementById('upload-panel').classList.toggle('hidden');
+});
+
+document.getElementById('btn-do-upload').addEventListener('click', async ()=>{
+  const msg = document.getElementById('upload-msg');
+  const fileInput = document.getElementById('upload-file-input');
+  const file = fileInput.files && fileInput.files[0];
+  if(!file){
+    msg.textContent = '파일을 먼저 선택하세요.';
+    msg.className = 'admin-msg err';
+    return;
+  }
+  if(typeof XLSX === 'undefined'){
+    msg.textContent = '엑셀 파싱 라이브러리를 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.';
+    msg.className = 'admin-msg err';
+    return;
+  }
+  msg.textContent = '파일 읽는 중…';
+  msg.className = 'admin-msg';
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type:'array', cellDates:true });
+    const wsName = wb.SheetNames[0];
+    const ws = wb.Sheets[wsName];
+    const rows = XLSX.utils.sheet_to_json(ws, { defval:'', raw:false, dateNF:'yyyy-mm-dd' });
+    if(!rows.length){
+      msg.textContent = '파일에서 데이터 행을 찾지 못했습니다.';
+      msg.className = 'admin-msg err';
+      return;
+    }
+    msg.textContent = rows.length + '개 행 업로드 중…';
+    const result = await apiAdminPost({ action:'appendNewOrders', rows });
+    if(!result.ok) throw new Error(result.error || '업로드 실패');
+    let text = result.added + '건 추가 완료';
+    if(result.mgmtNos && result.mgmtNos.length) text += ' (' + result.mgmtNos.join(', ') + ')';
+    if(result.skipped && result.skipped.length) text += ' / 건너뜀 ' + result.skipped.length + '건';
+    msg.textContent = text;
+    msg.className = 'admin-msg ok';
+    fileInput.value = '';
+    await loadData(false);
+  }catch(err){
+    msg.textContent = err.message || '업로드 중 오류가 발생했습니다.';
+    msg.className = 'admin-msg err';
+  }
 });
 
 async function apiAdminPost(body){
