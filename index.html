@@ -430,6 +430,10 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
       <div class="num" id="cnt-material">0</div>
       <div class="lbl">원소재 미발주 경고</div>
     </div>
+    <div class="card red" data-filter="processwarn">
+      <div class="num" id="cnt-processwarn">0</div>
+      <div class="lbl">⚠ 가공시작 3일 경과(완료 확인 필요)</div>
+    </div>
     <div class="card amber" data-filter="matpartial">
       <div class="num" id="cnt-matpartial">0</div>
       <div class="lbl">⚠ 소재 일부처리·확인필요</div>
@@ -452,7 +456,7 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
     </div>
   </div>
 
-  <div class="filters">
+  <div class="filters" id="filters-row">
     <select id="f-vendor"><option value="">전체 업체</option></select>
     <select id="f-outsource"><option value="">전체 외주가공업체</option></select>
     <input type="search" id="f-hull" placeholder="호선 검색 (예: TE34X62)">
@@ -508,6 +512,8 @@ const FIELD_MAP = {
   '가공시작':'process_start', '가공완료':'process_end', '성적서업로드 날짜':'cert_upload_date',
   '외주가공업체':'outsource_vendor', '외주출고일':'outsource_out_date', '외주입고일':'outsource_in_date',
   '납품여부':'delivery_status', '납품월':'delivery_month',
+  'CNC가공시작':'cnc_start', 'CNC가공완료':'cnc_done', 'MCT전달일':'mct_handoff',
+  'MCT가공시작':'mct_start', 'MCT가공완료':'mct_done',
 };
 
 const KEY_SHORT = {
@@ -521,6 +527,7 @@ const KEY_SHORT = {
   process_end:'pe', cert_upload_date:'cu', outsource_vendor:'ov',
   outsource_out_date:'oo', outsource_in_date:'oi', delivery_status:'st',
   delivery_month:'dm',
+  cnc_start:'cs_s', cnc_done:'cs_e', mct_handoff:'mh', mct_start:'ms_s', mct_done:'ms_e',
 };
 const FULL_KEY = {};
 for(const k in KEY_SHORT) FULL_KEY[KEY_SHORT[k]] = k;
@@ -601,6 +608,10 @@ function buildData(){
     o._dateError = dateError;
     o._moPartial = moPartial;
     o._status = status;
+    // 가공시작 후 3일이 지났는데도 아직 가공완료가 안 된 건 = 진행 확인 필요(알람)
+    const psDate = parseD(o.process_start);
+    o._processWarnDays = (!delivered && !o.process_end && psDate) ? daysBetween(today, psDate) : null;
+    o._processWarn = o._processWarnDays !== null && o._processWarnDays >= 3;
     return o;
   }).filter(o=>!o._cancelled);
 }
@@ -870,10 +881,24 @@ document.getElementById('btn-docitems-toggle').addEventListener('click', ()=>{
   document.getElementById('doc-panel').classList.toggle('hidden');
 });
 
+// CNC 팀장 화면에 보여야 하는 품목: 작업지시서 발행됐고, 아직 전체완료 아니고,
+// MCT로 전달되지 않았고, MCT가 단독으로 먼저 시작하지도 않은 품목(= CNC가 아직 "소유"하거나 미착수 상태)
+function showOnCNC(d){
+  return !!d.wo_date && !d.process_end && !d.mct_handoff && !d.mct_start;
+}
+// MCT 팀장 화면에 보여야 하는 품목: 작업지시서 발행됐고, 아직 전체완료 아니고,
+// (CNC에서 전달받았거나) (CNC가 아직 손대지 않은 = MCT 단독 가능 품목)
+function showOnMCT(d){
+  return !!d.wo_date && !d.process_end && (!!d.mct_handoff || !d.cnc_start);
+}
+
 function applyFilter(){
   return DATA.filter(d=>{
     // 생산직: 작업지시서가 발행(작성날짜 기입)된 품목만, 가공완료되면 목록에서 빠짐
     if(AUTH && AUTH.role==='production'){
+      if(AUTH.team==='CNC') return showOnCNC(d);
+      if(AUTH.team==='MCT') return showOnMCT(d);
+      // 담당공정(CNC/MCT) 미지정 계정은 기존 방식대로(작업지시 발행 + 미완료)
       if(!d.wo_date) return false;
       if(d.process_end) return false;
     }
@@ -889,6 +914,7 @@ function applyFilter(){
       if(hay.indexOf(t)<0) return false;
     }
     if(state.card==='material' && d._status!=='red-material') return false;
+    if(state.card==='processwarn' && !d._processWarn) return false;
     if(state.card==='matpartial' && d._status!=='material-partial') return false;
     if(state.card==='overdue' && d._status!=='overdue') return false;
     if(state.card==='due15' && d._status!=='red-due') return false;
@@ -922,6 +948,8 @@ const DETAIL_FIELDS = [
   ['material_vendor','소재발주처'], ['material_order_date','소재발주일'], ['material_in_date','소재반입일'],
   ['wo_date','작업지시서 작성날짜'], ['process_due_date','가공완료예상날짜'], ['process_delay_days','가공지연 일수'],
   ['process_start','가공시작'], ['process_end','가공완료'], ['cert_upload_date','성적서업로드 날짜'],
+  ['cnc_start','CNC가공시작'], ['cnc_done','CNC가공완료'], ['mct_handoff','MCT전달일'],
+  ['mct_start','MCT가공시작'], ['mct_done','MCT가공완료'],
   ['outsource_vendor','외주가공업체'], ['outsource_out_date','외주출고일'], ['outsource_in_date','외주입고일'],
   ['delivery_date','납품일'], ['delivery_status','납품여부'], ['delivery_month','납품월'],
   ['inspect_request','검사신청'], ['inspect_status','검사 진행상황'],
@@ -931,8 +959,19 @@ const DETAIL_FIELDS = [
 // 생산직 전용 간결 화면: 작업지시서가 발행된 품목만, 생산에 필요한 항목만 표시
 const PRODUCTION_THEAD =
   '<tr><th>관리번호</th><th>품명</th><th>재질</th><th>사이즈</th><th>수량</th><th>도면번호</th><th>납기일</th><th>가공시작</th><th>가공완료</th></tr>';
+// 담당공정(CNC/MCT)이 지정된 생산직 전용 화면
+const CNC_THEAD =
+  '<tr><th>관리번호</th><th>품명</th><th>재질</th><th>사이즈</th><th>수량</th><th>도면번호</th><th>납기일</th><th>가공시작</th><th>공정 처리</th></tr>';
+const MCT_THEAD =
+  '<tr><th>관리번호</th><th>품명</th><th>재질</th><th>사이즈</th><th>수량</th><th>도면번호</th><th>납기일</th><th>가공시작</th><th>가공완료</th></tr>';
 const DEFAULT_THEAD =
   '<tr><th></th><th>업체</th><th>호선</th><th>수주번호 / 품명</th><th>원소재 발주일</th><th>납기일</th><th>상태</th></tr>';
+
+// 가공시작 3일 경과(완료 미확인) 알람을 관리번호 칸에 작게 표시
+function warnBadge_(d){
+  if(!d._processWarn) return '';
+  return ' <span class="note-badge" title="가공시작 후 '+d._processWarnDays+'일 경과 — 완료 여부 확인 필요" style="background:var(--red,#c62828);">⚠</span>';
+}
 
 async function toggleProcess_(mgmtNo, field, btn){
   btn.disabled = true;
@@ -949,12 +988,28 @@ async function toggleProcess_(mgmtNo, field, btn){
   }
 }
 
+// CNC/MCT 공정 버튼 공용 — field: cnc_start/cnc_done/cnc_handoff/mct_start/mct_done
+async function toggleStage_(mgmtNo, field, btn){
+  btn.disabled = true;
+  const prevText = btn.textContent;
+  btn.textContent = '처리 중…';
+  try{
+    const result = await apiAdminPost({ action:'markStage', mgmtNo, field });
+    if(!result.ok) throw new Error(result.error || '처리 실패');
+    await loadData(false);
+  }catch(err){
+    alert(err.message || '처리 중 오류가 발생했습니다.');
+    btn.textContent = prevText;
+    btn.disabled = false;
+  }
+}
+
 function renderProductionRows(tbody, pageItems){
   pageItems.forEach(d=>{
     const tr = document.createElement('tr');
     tr.className = 'main-row';
     tr.innerHTML =
-      '<td class="mono">'+(d.mgmt_no||'')+'</td>'+
+      '<td class="mono">'+(d.mgmt_no||'')+warnBadge_(d)+'</td>'+
       '<td>'+(d.item||'')+'</td>'+
       '<td>'+(d.material||'<span class="dim">—</span>')+'</td>'+
       '<td>'+(d.size||'<span class="dim">—</span>')+'</td>'+
@@ -982,9 +1037,98 @@ function renderProductionRows(tbody, pageItems){
   });
 }
 
+// CNC 팀장 화면: 가공시작 버튼 + (시작 후) "CNC 가공완료 확인" / "MCT로 전달" 두 개의 별도 버튼
+function renderCNCRows(tbody, pageItems){
+  pageItems.forEach(d=>{
+    const tr = document.createElement('tr');
+    tr.className = 'main-row';
+    tr.innerHTML =
+      '<td class="mono">'+(d.mgmt_no||'')+warnBadge_(d)+'</td>'+
+      '<td>'+(d.item||'')+'</td>'+
+      '<td>'+(d.material||'<span class="dim">—</span>')+'</td>'+
+      '<td>'+(d.size||'<span class="dim">—</span>')+'</td>'+
+      '<td>'+(d.qty||'')+'</td>'+
+      '<td class="mono">'+(d.drawing_no||'<span class="dim">—</span>')+'</td>'+
+      '<td class="mono'+(d._dateError?' date-err':'')+'">'+fmtD(d.due_date)+'</td>'+
+      '<td></td>'+
+      '<td></td>';
+    const tdStart = tr.children[7];
+    const tdAction = tr.children[8];
+
+    const startBtn = document.createElement('button');
+    startBtn.className = 'process-btn' + (d.cnc_start ? ' done' : '');
+    startBtn.textContent = d.cnc_start ? ('✓ '+fmtD(d.cnc_start)) : '가공시작';
+    startBtn.addEventListener('click', ()=>toggleStage_(d.mgmt_no, 'cnc_start', startBtn));
+    tdStart.appendChild(startBtn);
+
+    if(d.cnc_start){
+      const doneBtn = document.createElement('button');
+      doneBtn.className = 'process-btn' + (d.cnc_done ? ' done' : '');
+      doneBtn.textContent = d.cnc_done ? '✓ CNC완료' : 'CNC 가공완료 확인';
+      doneBtn.style.marginRight = '6px';
+      doneBtn.addEventListener('click', ()=>toggleStage_(d.mgmt_no, 'cnc_done', doneBtn));
+      tdAction.appendChild(doneBtn);
+
+      const handoffBtn = document.createElement('button');
+      handoffBtn.className = 'process-btn' + (d.mct_handoff ? ' done' : '');
+      handoffBtn.textContent = d.mct_handoff ? ('✓ MCT전달 '+fmtD(d.mct_handoff)) : 'MCT로 전달';
+      handoffBtn.addEventListener('click', ()=>toggleStage_(d.mgmt_no, 'cnc_handoff', handoffBtn));
+      tdAction.appendChild(handoffBtn);
+    } else {
+      tdAction.innerHTML = '<span class="dim">가공시작 후 가능</span>';
+    }
+
+    tbody.appendChild(tr);
+  });
+}
+
+// MCT 팀장 화면: CNC에서 전달된 품목 + MCT 단독 품목 모두 같은 형식(가공시작/가공완료)으로 표시
+function renderMCTRows(tbody, pageItems){
+  pageItems.forEach(d=>{
+    const tr = document.createElement('tr');
+    tr.className = 'main-row';
+    const fromCNC = !!d.mct_handoff;
+    tr.innerHTML =
+      '<td class="mono">'+(d.mgmt_no||'')+warnBadge_(d)+(fromCNC?' <span class="dim" style="font-size:11px;">(CNC전달)</span>':'')+'</td>'+
+      '<td>'+(d.item||'')+'</td>'+
+      '<td>'+(d.material||'<span class="dim">—</span>')+'</td>'+
+      '<td>'+(d.size||'<span class="dim">—</span>')+'</td>'+
+      '<td>'+(d.qty||'')+'</td>'+
+      '<td class="mono">'+(d.drawing_no||'<span class="dim">—</span>')+'</td>'+
+      '<td class="mono'+(d._dateError?' date-err':'')+'">'+fmtD(d.due_date)+'</td>'+
+      '<td></td>'+
+      '<td></td>';
+    const tdStart = tr.children[7];
+    const tdEnd = tr.children[8];
+
+    const startBtn = document.createElement('button');
+    startBtn.className = 'process-btn' + (d.mct_start ? ' done' : '');
+    startBtn.textContent = d.mct_start ? ('✓ '+fmtD(d.mct_start)) : '가공시작';
+    startBtn.addEventListener('click', ()=>toggleStage_(d.mgmt_no, 'mct_start', startBtn));
+    tdStart.appendChild(startBtn);
+
+    if(d.mct_start){
+      const endBtn = document.createElement('button');
+      endBtn.className = 'process-btn' + (d.mct_done ? ' done' : '');
+      endBtn.textContent = d.mct_done ? ('✓ '+fmtD(d.mct_done)) : '가공완료';
+      endBtn.addEventListener('click', ()=>toggleStage_(d.mgmt_no, 'mct_done', endBtn));
+      tdEnd.appendChild(endBtn);
+    } else {
+      tdEnd.innerHTML = '<span class="dim">가공시작 후 가능</span>';
+    }
+
+    tbody.appendChild(tr);
+  });
+}
+
 function render(){
   const isProduction = !!(AUTH && AUTH.role==='production');
-  document.getElementById('thead-row').innerHTML = isProduction ? PRODUCTION_THEAD : DEFAULT_THEAD;
+  const team = isProduction ? (AUTH.team||'') : '';
+  let thead = DEFAULT_THEAD;
+  if(team==='CNC') thead = CNC_THEAD;
+  else if(team==='MCT') thead = MCT_THEAD;
+  else if(isProduction) thead = PRODUCTION_THEAD;
+  document.getElementById('thead-row').innerHTML = thead;
 
   const filtered = applyFilter();
   document.getElementById('result-count').textContent = filtered.length.toLocaleString()+'건 표시 (전체 '+DATA.length.toLocaleString()+'건 중)';
@@ -999,9 +1143,10 @@ function render(){
   document.getElementById('empty-state').style.display = filtered.length ? 'none' : 'block';
 
   if(isProduction){
-    renderProductionRows(tbody, pageItems);
+    if(team==='CNC') renderCNCRows(tbody, pageItems);
+    else if(team==='MCT') renderMCTRows(tbody, pageItems);
+    else renderProductionRows(tbody, pageItems);
     renderPager(totalPages);
-    renderCards();
     return;
   }
 
@@ -1065,6 +1210,7 @@ function renderPager(totalPages){
 function renderCards(){
   document.getElementById('cnt-all').textContent = DATA.length.toLocaleString();
   document.getElementById('cnt-material').textContent = DATA.filter(d=>!d._delivered && d._status==='red-material').length.toLocaleString();
+  document.getElementById('cnt-processwarn').textContent = DATA.filter(d=>d._processWarn).length.toLocaleString();
   document.getElementById('cnt-matpartial').textContent = DATA.filter(d=>!d._delivered && d._status==='material-partial').length.toLocaleString();
   document.getElementById('cnt-overdue').textContent = DATA.filter(d=>!d._delivered && d._status==='overdue').length.toLocaleString();
   document.getElementById('cnt-due15').textContent = DATA.filter(d=>!d._delivered && d._status==='red-due').length.toLocaleString();
@@ -1169,6 +1315,9 @@ function showApp(){
   document.getElementById('btn-gen-wo').classList.toggle('hidden', !(AUTH.role==='owner' || AUTH.role==='admin'));
   document.getElementById('btn-gen-ds').classList.toggle('hidden', !(AUTH.role==='owner' || AUTH.role==='admin'));
   document.getElementById('btn-upload-toggle').classList.toggle('hidden', !(AUTH.role==='owner' || AUTH.role==='admin'));
+  const isProd = AUTH.role==='production';
+  document.getElementById('cards').classList.toggle('hidden', isProd);
+  document.getElementById('filters-row').classList.toggle('hidden', isProd);
   loadData(true);
 }
 
@@ -1186,7 +1335,7 @@ document.getElementById('login-form').addEventListener('submit', async (e)=>{
   try{
     const result = await apiLogin(username, password);
     if(!result.ok) throw new Error(result.error || '로그인 실패');
-    AUTH = { username: username, password: password, name: result.user.name, role: result.user.role };
+    AUTH = { username: username, password: password, name: result.user.name, role: result.user.role, team: result.user.team || '' };
     saveAuth(AUTH);
     document.getElementById('login-error').textContent = '';
     showApp();
@@ -1348,7 +1497,7 @@ document.getElementById('btn-add-user').addEventListener('click', async ()=>{
   try{
     const result = await apiLogin(saved.username, saved.password);
     if(!result.ok){ clearAuth(); showLogin('세션이 만료되었습니다. 다시 로그인해주세요.'); return; }
-    AUTH = { username: saved.username, password: saved.password, name: result.user.name, role: result.user.role };
+    AUTH = { username: saved.username, password: saved.password, name: result.user.name, role: result.user.role, team: result.user.team || '' };
     saveAuth(AUTH);
     showApp();
   }catch(err){
