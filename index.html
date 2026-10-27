@@ -882,14 +882,15 @@ document.getElementById('btn-docitems-toggle').addEventListener('click', ()=>{
 });
 
 // CNC 팀장 화면에 보여야 하는 품목: 작업지시서 발행됐고, 아직 전체완료 아니고,
-// MCT로 전달되지 않았고, MCT가 단독으로 먼저 시작하지도 않은 품목(= CNC가 아직 "소유"하거나 미착수 상태)
+// 아직 MCT로 전달되지 않은 품목. (전달 여부는 오직 CNC 팀장의 "MCT로 전달" 버튼으로만 결정됨)
 function showOnCNC(d){
-  return !!d.wo_date && !d.process_end && !d.mct_handoff && !d.mct_start;
+  return !!d.wo_date && !d.process_end && !d.mct_handoff;
 }
-// MCT 팀장 화면에 보여야 하는 품목: 작업지시서 발행됐고, 아직 전체완료 아니고,
-// (CNC에서 전달받았거나) (CNC가 아직 손대지 않은 = MCT 단독 가능 품목)
+// MCT 팀장 화면에 보여야 하는 품목: CNC 팀장이 명시적으로 "MCT로 전달"을 누른 품목만.
+// (CNC가 아직 손대지 않은 품목은 CNC 팀장이 직접 보고 "MCT로 전달"을 눌러야만 이 화면에 들어옴 —
+//  그 전까지는 CNC 쪽에만 보여서 MCT 화면에 관계없는 품목이 섞이지 않게 함)
 function showOnMCT(d){
-  return !!d.wo_date && !d.process_end && (!!d.mct_handoff || !d.cnc_start);
+  return !!d.wo_date && !d.process_end && !!d.mct_handoff;
 }
 
 function applyFilter(){
@@ -1061,6 +1062,9 @@ function renderCNCRows(tbody, pageItems){
     startBtn.addEventListener('click', ()=>toggleStage_(d.mgmt_no, 'cnc_start', startBtn));
     tdStart.appendChild(startBtn);
 
+    // "CNC 가공완료 확인"은 CNC 작업을 실제로 시작한 품목에서만(가공시작 후).
+    // "MCT로 전달"은 CNC 작업 시작 여부와 무관하게 항상 가능 — CNC가 아예 손대지 않고
+    // 바로 MCT로 넘길 품목(=MCT 단독 품목)도 이 버튼 하나로 지정할 수 있도록.
     if(d.cnc_start){
       const doneBtn = document.createElement('button');
       doneBtn.className = 'process-btn' + (d.cnc_done ? ' done' : '');
@@ -1068,15 +1072,13 @@ function renderCNCRows(tbody, pageItems){
       doneBtn.style.marginRight = '6px';
       doneBtn.addEventListener('click', ()=>toggleStage_(d.mgmt_no, 'cnc_done', doneBtn));
       tdAction.appendChild(doneBtn);
-
-      const handoffBtn = document.createElement('button');
-      handoffBtn.className = 'process-btn' + (d.mct_handoff ? ' done' : '');
-      handoffBtn.textContent = d.mct_handoff ? ('✓ MCT전달 '+fmtD(d.mct_handoff)) : 'MCT로 전달';
-      handoffBtn.addEventListener('click', ()=>toggleStage_(d.mgmt_no, 'cnc_handoff', handoffBtn));
-      tdAction.appendChild(handoffBtn);
-    } else {
-      tdAction.innerHTML = '<span class="dim">가공시작 후 가능</span>';
     }
+
+    const handoffBtn = document.createElement('button');
+    handoffBtn.className = 'process-btn' + (d.mct_handoff ? ' done' : '');
+    handoffBtn.textContent = d.mct_handoff ? ('✓ MCT전달 '+fmtD(d.mct_handoff)) : 'MCT로 전달';
+    handoffBtn.addEventListener('click', ()=>toggleStage_(d.mgmt_no, 'cnc_handoff', handoffBtn));
+    tdAction.appendChild(handoffBtn);
 
     tbody.appendChild(tr);
   });
@@ -1087,9 +1089,8 @@ function renderMCTRows(tbody, pageItems){
   pageItems.forEach(d=>{
     const tr = document.createElement('tr');
     tr.className = 'main-row';
-    const fromCNC = !!d.mct_handoff;
     tr.innerHTML =
-      '<td class="mono">'+(d.mgmt_no||'')+warnBadge_(d)+(fromCNC?' <span class="dim" style="font-size:11px;">(CNC전달)</span>':'')+'</td>'+
+      '<td class="mono">'+(d.mgmt_no||'')+warnBadge_(d)+'</td>'+
       '<td>'+(d.item||'')+'</td>'+
       '<td>'+(d.material||'<span class="dim">—</span>')+'</td>'+
       '<td>'+(d.size||'<span class="dim">—</span>')+'</td>'+
