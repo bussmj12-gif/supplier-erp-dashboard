@@ -1700,16 +1700,15 @@ function parseYearMonth_(val){
 function buildMoneySummary_(type){
   const buckets = {}; // 'YYYY-MM' -> 금액
   (PRICE_DATA||[]).forEach(row=>{
-    const qty = Number(row.qty) || 0;
     let ym, amount;
     if(type === 'purchase'){
+      // 매입합계 = 소재비 합계 + 외주비 합계 (시트에 이미 계산되어 있는 값을 그대로 더함)
       ym = parseYearMonth_(row.purchase_invoice_date);
-      const matAmt = (Number(row.material_price)||0) * qty;
-      const outAmt = (Number(row.outsource_price)||0) * qty;
-      amount = matAmt + outAmt;
+      amount = (Number(row.material_total)||0) + (Number(row.outsource_total)||0);
     }else{
+      // 매출합계 = 수주금액 (시트에 이미 계산되어 있는 값을 그대로 사용)
       ym = parseYearMonth_(row.delivery_month);
-      amount = (Number(row.order_price)||0) * qty;
+      amount = Number(row.order_amount)||0;
     }
     if(!ym || !amount) return;
     buckets[ym] = (buckets[ym]||0) + amount;
