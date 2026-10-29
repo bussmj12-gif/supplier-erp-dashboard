@@ -383,6 +383,7 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
       <button class="btn-ghost hidden" id="btn-admin-toggle">👤 사용자 관리</button>
       <button class="btn-ghost hidden" id="btn-upload-toggle">➕ 새 수주 업로드</button>
       <button class="btn-ghost hidden" id="btn-price-toggle">💰 단가 비교</button>
+      <button class="btn-ghost hidden" id="btn-doclog-toggle">📑 판매·구매 조회</button>
       <button class="btn-ghost" id="btn-docitems-toggle">📦 품목 선택</button>
       <button class="btn-ghost" id="btn-logout">로그아웃</button>
     </div>
@@ -443,6 +444,39 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
     <div style="display:flex; gap:8px; margin:12px 0;">
       <button id="btn-price-addcol" class="btn-ghost">+ 비교 조건 추가</button>
       <button id="btn-price-export">선택 항목(<span id="price-sel-count">0</span>) 엑셀로 내보내기</button>
+    </div>
+  </div>
+
+  <div class="admin-panel hidden" id="doclog-panel">
+    <h3>판매·구매 조회 및 검색</h3>
+    <p style="font-size:12.5px; color:var(--ink-dim); margin:0 0 10px;">
+      지금까지 생성한 견적서·발주서·작업지시서·거래명세서·매입거래명세서·세금계산서를 조건으로 찾아서 바로 열어볼 수 있습니다.
+      잘못 발행된 건은 "취소 처리"를 누르면 기록은 남고 매입/매출 합계 집계에서만 제외됩니다.
+    </p>
+    <div class="admin-msg" id="doclog-msg"></div>
+    <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+      <select id="doclog-type">
+        <option value="">전체 문서종류</option>
+        <option value="견적서">견적서</option>
+        <option value="소재발주서">소재발주서</option>
+        <option value="외주발주서">외주발주서</option>
+        <option value="작업지시서">작업지시서</option>
+        <option value="매출거래명세서">매출거래명세서</option>
+        <option value="매입거래명세서(소재)">매입거래명세서(소재)</option>
+        <option value="매입거래명세서(외주)">매입거래명세서(외주)</option>
+        <option value="세금계산서">세금계산서</option>
+      </select>
+      <label style="font-size:12px; color:var(--ink-dim);">시작일<br/><input type="date" id="doclog-from"></label>
+      <label style="font-size:12px; color:var(--ink-dim);">종료일<br/><input type="date" id="doclog-to"></label>
+      <input type="search" id="doclog-text" placeholder="거래처명 · 발주번호 · 수주번호 · 품명 · 호선/프로젝트 검색" style="min-width:260px;">
+      <label style="font-size:12px; color:var(--ink-dim); display:flex; align-items:center; gap:4px;">
+        <input type="checkbox" id="doclog-show-cancelled"> 취소 포함 보기
+      </label>
+      <button id="btn-doclog-clear" class="btn-ghost">필터 초기화</button>
+    </div>
+    <div class="price-col-count" id="doclog-count"></div>
+    <div style="overflow-x:auto;">
+      <table class="price-table" id="doclog-table"></table>
     </div>
   </div>
 
@@ -1591,6 +1625,7 @@ function showApp(){
   document.getElementById('btn-gen-purchase').classList.toggle('hidden', !(AUTH.role==='owner' || AUTH.role==='admin'));
   document.getElementById('btn-upload-toggle').classList.toggle('hidden', !(AUTH.role==='owner' || AUTH.role==='admin'));
   document.getElementById('btn-price-toggle').classList.toggle('hidden', !(AUTH.role==='owner' || AUTH.role==='admin'));
+  document.getElementById('btn-doclog-toggle').classList.toggle('hidden', !(AUTH.role==='owner' || AUTH.role==='admin'));
   const isProd = AUTH.role==='production';
   document.getElementById('cards').classList.toggle('hidden', isProd);
   document.getElementById('filters-row').classList.toggle('hidden', isProd);
@@ -1885,7 +1920,8 @@ function buildMoneySummary_(type){
   };
   if(type === 'purchase'){
     // 매입합계 = 매입거래명세서 로그의 공급가액/세액 합 — 매입거래명세서 반입일 기준으로 집계
-    (PURCHASE_LEDGER||[]).forEach(row=>{
+    // (취소 처리된 행은 집계에서 제외)
+    (PURCHASE_LEDGER||[]).filter(row=>row.status!=='취소').forEach(row=>{
       add(parseYearMonth_(row.in_date), Number(row.supply)||0, Number(row.vat)||0);
     });
   }else{
@@ -1983,6 +2019,123 @@ document.getElementById('btn-summary-yearly').addEventListener('click', ()=>{
   document.getElementById('btn-summary-yearly').classList.add('active');
   document.getElementById('btn-summary-monthly').classList.remove('active');
   renderMoneySummary_();
+});
+
+// ---------- 판매·구매 조회 및 검색 (문서발행이력) ----------
+let DOC_LOG = null; // 지연 로딩
+
+const doclogPanel = document.getElementById('doclog-panel');
+const doclogMsg = document.getElementById('doclog-msg');
+const doclogTypeSel = document.getElementById('doclog-type');
+const doclogFromEl = document.getElementById('doclog-from');
+const doclogToEl = document.getElementById('doclog-to');
+const doclogTextEl = document.getElementById('doclog-text');
+const doclogShowCancelledEl = document.getElementById('doclog-show-cancelled');
+
+document.getElementById('btn-doclog-toggle').addEventListener('click', async ()=>{
+  doclogPanel.classList.toggle('hidden');
+  if(doclogPanel.classList.contains('hidden')) return;
+  if(!DOC_LOG){
+    doclogMsg.textContent = '발행 이력을 불러오는 중…';
+    doclogMsg.className = 'admin-msg';
+    try{
+      const result = await apiAdminPost({ action:'fetchDocumentLog' });
+      if(!result.ok) throw new Error(result.error || '불러오기 실패');
+      DOC_LOG = result.rows || [];
+      doclogMsg.textContent = '';
+      renderDoclogTable_();
+    }catch(err){
+      doclogMsg.textContent = err.message || '발행 이력을 불러오지 못했습니다.';
+      doclogMsg.className = 'admin-msg err';
+    }
+  }else{
+    renderDoclogTable_();
+  }
+});
+
+function doclogMatches_(row){
+  if(doclogTypeSel.value && row.doc_type !== doclogTypeSel.value) return false;
+  if(!doclogShowCancelledEl.checked && row.status === '취소') return false;
+  const dateOnly = (row.created_at || '').slice(0,10);
+  if(doclogFromEl.value && dateOnly < doclogFromEl.value) return false;
+  if(doclogToEl.value && dateOnly > doclogToEl.value) return false;
+  const q = doclogTextEl.value.trim().toLowerCase();
+  if(q){
+    const hay = [row.vendor, row.po_no, row.order_nos, row.items, row.hull, row.mgmt_nos]
+      .filter(Boolean).join(' ').toLowerCase();
+    if(hay.indexOf(q) < 0) return false;
+  }
+  return true;
+}
+
+function renderDoclogTable_(){
+  const rows = (DOC_LOG||[]).filter(doclogMatches_);
+  document.getElementById('doclog-count').textContent = rows.length.toLocaleString() + '건';
+  const tbl = document.getElementById('doclog-table');
+  if(!rows.length){
+    tbl.innerHTML = '<tbody><tr><td class="dim" style="padding:10px 0;">조건에 맞는 문서가 없습니다.</td></tr></tbody>';
+    return;
+  }
+  let html = '<thead><tr><th>생성일시</th><th>문서종류</th><th>거래처명</th><th>발주번호</th>' +
+    '<th>수주번호</th><th>품명</th><th>호선/프로젝트</th><th>관리번호</th><th>작성자</th><th>상태</th><th></th><th></th></tr></thead><tbody>';
+  rows.forEach(r=>{
+    const cancelled = r.status === '취소';
+    html += '<tr' + (cancelled ? ' style="opacity:.55;"' : '') + '>' +
+      '<td class="mono">'+r.created_at+'</td>' +
+      '<td>'+r.doc_type+'</td>' +
+      '<td>'+(r.vendor||'')+'</td>' +
+      '<td>'+(r.po_no||'')+'</td>' +
+      '<td>'+(r.order_nos||'')+'</td>' +
+      '<td>'+(r.items||'')+'</td>' +
+      '<td>'+(r.hull||'')+'</td>' +
+      '<td class="mono">'+(r.mgmt_nos||'')+'</td>' +
+      '<td>'+(r.username||'')+'</td>' +
+      '<td>'+(cancelled ? '<span style="color:var(--red);">취소'+(r.cancel_reason?' ('+r.cancel_reason+')':'')+'</span>' : '정상')+'</td>' +
+      '<td>'+(r.url ? '<a href="'+r.url+'" target="_blank">열기</a>' : '')+'</td>' +
+      '<td><button class="btn-ghost doclog-cancel-btn" data-batch="'+r.batch_id+'" data-cancelled="'+cancelled+'" style="padding:4px 9px; font-size:11.5px;">'+(cancelled?'복구':'취소 처리')+'</button></td>' +
+      '</tr>';
+  });
+  html += '</tbody>';
+  tbl.innerHTML = html;
+
+  tbl.querySelectorAll('.doclog-cancel-btn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const batchId = btn.dataset.batch;
+      const alreadyCancelled = btn.dataset.cancelled === 'true';
+      let reason = '';
+      if(!alreadyCancelled){
+        reason = window.prompt('취소 사유를 입력하세요 (매입/매출 합계 집계에서 제외됩니다):', '') || '';
+        if(reason === null) return;
+      }else{
+        if(!window.confirm('이 문서를 다시 "정상" 상태로 되돌릴까요?')) return;
+      }
+      btn.disabled = true;
+      try{
+        const result = await apiAdminPost({ action:'cancelDocument', batchId, reason });
+        if(!result.ok) throw new Error(result.error || '처리 실패');
+        DOC_LOG = null; // 다음에 열 때 새로 불러오도록
+        PURCHASE_LEDGER = null; // 매입합계 집계에도 반영되도록 캐시 비움
+        doclogMsg.textContent = result.cancelled ? '취소 처리되었습니다.' : '정상으로 복구되었습니다.';
+        doclogMsg.className = 'admin-msg ok';
+        const r2 = await apiAdminPost({ action:'fetchDocumentLog' });
+        if(r2.ok){ DOC_LOG = r2.rows || []; renderDoclogTable_(); }
+      }catch(err){
+        doclogMsg.textContent = err.message || '처리 중 오류가 발생했습니다.';
+        doclogMsg.className = 'admin-msg err';
+      }finally{
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
+[doclogTypeSel, doclogFromEl, doclogToEl, doclogTextEl, doclogShowCancelledEl].forEach(el=>{
+  el.addEventListener('input', ()=>{ if(DOC_LOG) renderDoclogTable_(); });
+});
+document.getElementById('btn-doclog-clear').addEventListener('click', ()=>{
+  doclogTypeSel.value = ''; doclogFromEl.value = ''; doclogToEl.value = '';
+  doclogTextEl.value = ''; doclogShowCancelledEl.checked = false;
+  if(DOC_LOG) renderDoclogTable_();
 });
 
 async function apiAdminPost(body){
