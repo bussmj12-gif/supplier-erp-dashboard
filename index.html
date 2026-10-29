@@ -153,6 +153,12 @@ body{
 .price-table th, .price-table td{padding:5px 7px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap;}
 .price-table th{color:var(--ink-dim); font-weight:600;}
 .price-table td.num{text-align:right; font-variant-numeric:tabular-nums;}
+.seg-btn{
+  padding:5px 13px; border:1px solid var(--line); background:var(--panel); border-radius:6px;
+  font-size:12px; cursor:pointer; color:var(--ink-dim);
+}
+.seg-btn.active{ background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+.price-table tr.total-row td{ font-weight:700; border-top:2px solid var(--line); border-bottom:none; }
 
 /* ---------- 문서용 품목 선택 패널 ---------- */
 .doc-panel{
@@ -416,6 +422,23 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
       아래에서 필요한 항목을 체크한 뒤 "선택 항목 엑셀로 내보내기"를 누르면 엑셀 파일로 받을 수 있습니다.
     </p>
     <div class="admin-msg" id="price-msg"></div>
+
+    <div style="display:flex; gap:8px; margin-bottom:10px;">
+      <button id="btn-purchase-summary" class="btn-ghost">📥 매입합계 (월별/년별)</button>
+      <button id="btn-sales-summary" class="btn-ghost">📤 매출합계 (월별/년별)</button>
+    </div>
+    <div class="hidden" id="money-summary-box" style="margin:0 0 16px; border:1px solid var(--line); border-radius:10px; padding:12px; background:var(--panel2);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <span id="money-summary-title" style="font-weight:600; font-size:13px;"></span>
+        <div style="display:flex; gap:6px;">
+          <button id="btn-summary-monthly" class="seg-btn active">월별</button>
+          <button id="btn-summary-yearly" class="seg-btn">년별</button>
+        </div>
+      </div>
+      <p id="money-summary-note" class="dim" style="font-size:12px; margin:0 0 8px;"></p>
+      <div id="money-summary-table"></div>
+    </div>
+
     <div id="price-cols"></div>
     <div style="display:flex; gap:8px; margin:12px 0;">
       <button id="btn-price-addcol" class="btn-ghost">+ 비교 조건 추가</button>
@@ -1656,6 +1679,113 @@ document.getElementById('btn-price-export').addEventListener('click', ()=>{
   XLSX.utils.book_append_sheet(wb, ws, '단가비교');
   const stamp = new Date().toISOString().slice(0,19).replace(/[-:T]/g,'');
   XLSX.writeFile(wb, '단가비교_' + stamp + '.xlsx');
+});
+
+// ---------- 매입합계/매출합계 (월별·년별) ----------
+let moneySummaryType = null;   // 'purchase' | 'sales' | null
+let moneySummaryGrain = 'month'; // 'month' | 'year'
+
+// 다양한 입력 형식("2026-10","2026.10","2026년 10월", Date→"YYYY-MM-DD" 등)에서 연/월을 뽑아냄
+function parseYearMonth_(val){
+  if(!val) return null;
+  const s = String(val);
+  const m = s.match(/(\d{4})\D{0,3}(\d{1,2})/);
+  if(!m) return null;
+  const y = m[1];
+  const moNum = Number(m[2]);
+  if(moNum < 1 || moNum > 12) return null;
+  return y + '-' + String(moNum).padStart(2,'0');
+}
+
+function buildMoneySummary_(type){
+  const buckets = {}; // 'YYYY-MM' -> 금액
+  (PRICE_DATA||[]).forEach(row=>{
+    const qty = Number(row.qty) || 0;
+    let ym, amount;
+    if(type === 'purchase'){
+      ym = parseYearMonth_(row.purchase_invoice_date);
+      const matAmt = (Number(row.material_price)||0) * qty;
+      const outAmt = (Number(row.outsource_price)||0) * qty;
+      amount = matAmt + outAmt;
+    }else{
+      ym = parseYearMonth_(row.delivery_month);
+      amount = (Number(row.order_price)||0) * qty;
+    }
+    if(!ym || !amount) return;
+    buckets[ym] = (buckets[ym]||0) + amount;
+  });
+  return buckets;
+}
+
+function renderMoneySummary_(){
+  if(!moneySummaryType) return;
+  const label = moneySummaryType === 'purchase' ? '매입합계' : '매출합계';
+  document.getElementById('money-summary-title').textContent = label + ' (' + (moneySummaryGrain==='year' ? '년별' : '월별') + ')';
+  document.getElementById('money-summary-note').textContent = moneySummaryType === 'purchase'
+    ? '기준: 매입거래명세서 발행일 (시트에 날짜가 입력된 품목만 집계됩니다)'
+    : '기준: 납품월 (거래명세서가 끊어진 월)';
+
+  const buckets = buildMoneySummary_(moneySummaryType);
+  let rows;
+  if(moneySummaryGrain === 'year'){
+    const yearBuckets = {};
+    Object.keys(buckets).forEach(ym=>{
+      const y = ym.slice(0,4);
+      yearBuckets[y] = (yearBuckets[y]||0) + buckets[ym];
+    });
+    rows = Object.keys(yearBuckets).sort().reverse().map(y=>[y+'년', yearBuckets[y]]);
+  }else{
+    rows = Object.keys(buckets).sort().reverse().map(ym=>{
+      const [y,mo] = ym.split('-');
+      return [y+'년 '+mo+'월', buckets[ym]];
+    });
+  }
+
+  const tableEl = document.getElementById('money-summary-table');
+  if(!rows.length){
+    tableEl.innerHTML = '<div class="dim" style="padding:8px 0;">집계할 데이터가 없습니다. (' +
+      (moneySummaryType==='purchase' ? '매입거래명세서 발행일' : '납품월') + ' 입력 필요)</div>';
+    return;
+  }
+  const total = rows.reduce((s,r)=>s+r[1],0);
+  let html = '<table class="price-table"><thead><tr><th>기간</th><th>'+label+'</th></tr></thead><tbody>';
+  rows.forEach(r=>{
+    html += '<tr><td>'+r[0]+'</td><td class="num">'+Math.round(r[1]).toLocaleString()+'원</td></tr>';
+  });
+  html += '<tr class="total-row"><td>합계</td><td class="num">'+Math.round(total).toLocaleString()+'원</td></tr>';
+  html += '</tbody></table>';
+  tableEl.innerHTML = html;
+}
+
+function toggleMoneySummary_(type){
+  const box = document.getElementById('money-summary-box');
+  if(!PRICE_DATA){
+    document.getElementById('price-msg').textContent = '단가 데이터를 불러오는 중입니다. 잠시 후 다시 시도하세요.';
+    return;
+  }
+  if(moneySummaryType === type && !box.classList.contains('hidden')){
+    box.classList.add('hidden');
+    moneySummaryType = null;
+    return;
+  }
+  moneySummaryType = type;
+  box.classList.remove('hidden');
+  renderMoneySummary_();
+}
+
+document.getElementById('btn-purchase-summary').addEventListener('click', ()=>toggleMoneySummary_('purchase'));
+document.getElementById('btn-sales-summary').addEventListener('click', ()=>toggleMoneySummary_('sales'));
+document.getElementById('btn-summary-monthly').addEventListener('click', ()=>{
+  moneySummaryGrain = 'month';
+  document.getElementById('btn-summary-monthly').classList.add('active');
+  document.getElementById('btn-summary-yearly').classList.remove('active');
+  renderMoneySummary_();
+});
+document.getElementById('btn-summary-yearly').addEventListener('click', ()=>{
+  moneySummaryGrain = 'year';
+  document.getElementById('btn-summary-yearly').classList.add('active');
+  document.getElementById('btn-summary-monthly').classList.remove('active');
+  renderMoneySummary_();
 });
 
 async function apiAdminPost(body){
