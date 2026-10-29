@@ -1529,7 +1529,7 @@ function priceVendorList_(){
 
 function addPriceColumn(){
   priceColSeq++;
-  priceColumns.push({ id: priceColSeq, vendor:'', material:'', size:'' });
+  priceColumns.push({ id: priceColSeq, vendor:'', material:'', size:'', drawing:'' });
   renderPriceColumns();
 }
 
@@ -1549,6 +1549,9 @@ function priceRowMatches_(row, col){
   }
   if(col.size){
     if(!String(row.size||'').toLowerCase().includes(col.size.toLowerCase())) return false;
+  }
+  if(col.drawing){
+    if(!String(row.drawing_no||'').toLowerCase().includes(col.drawing.toLowerCase())) return false;
   }
   return true;
 }
@@ -1575,6 +1578,7 @@ function renderPriceColumns(){
       '<input type="text" placeholder="업체명" list="'+vendorListId+'" value="'+(col.vendor||'').replace(/"/g,'&quot;')+'" data-k="vendor">'+
       '<input type="text" placeholder="재질" value="'+(col.material||'').replace(/"/g,'&quot;')+'" data-k="material">'+
       '<input type="text" placeholder="사이즈" value="'+(col.size||'').replace(/"/g,'&quot;')+'" data-k="size">'+
+      '<input type="text" placeholder="도면번호" value="'+(col.drawing||'').replace(/"/g,'&quot;')+'" data-k="drawing">'+
       (priceColumns.length>1 ? '<button class="price-col-remove" title="이 조건 삭제">✕</button>' : '');
     head.querySelectorAll('input').forEach(inp=>{
       inp.addEventListener('input', ()=>{ col[inp.dataset.k] = inp.value; renderPriceTable_(box, col); });
