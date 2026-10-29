@@ -132,6 +132,28 @@ body{
 }
 #btn-do-upload:disabled{opacity:.5; cursor:not-allowed;}
 
+/* ---------- 단가 비교 패널 ---------- */
+#btn-price-export{
+  background:var(--accent); color:#fff; border:none; border-radius:7px; padding:9px 16px;
+  font-size:13px; font-weight:600; cursor:pointer;
+}
+#btn-price-export:disabled{opacity:.5; cursor:not-allowed;}
+.price-col{
+  border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:12px; background:var(--panel2);
+}
+.price-col-head{display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px;}
+.price-col-head input{
+  padding:6px 9px; border:1px solid var(--line); border-radius:6px; font-size:12.5px; min-width:120px;
+}
+.price-col-remove{
+  margin-left:auto; background:none; border:none; color:var(--red); cursor:pointer; font-size:16px; line-height:1;
+}
+.price-col-count{font-size:12px; color:var(--ink-dim); margin-bottom:6px;}
+.price-table{width:100%; border-collapse:collapse; font-size:12.5px;}
+.price-table th, .price-table td{padding:5px 7px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap;}
+.price-table th{color:var(--ink-dim); font-weight:600;}
+.price-table td.num{text-align:right; font-variant-numeric:tabular-nums;}
+
 /* ---------- 문서용 품목 선택 패널 ---------- */
 .doc-panel{
   background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px;
@@ -354,6 +376,7 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
       <button class="btn-ghost" id="btn-refresh">↻ 새로고침</button>
       <button class="btn-ghost hidden" id="btn-admin-toggle">👤 사용자 관리</button>
       <button class="btn-ghost hidden" id="btn-upload-toggle">➕ 새 수주 업로드</button>
+      <button class="btn-ghost hidden" id="btn-price-toggle">💰 단가 비교</button>
       <button class="btn-ghost" id="btn-docitems-toggle">📦 품목 선택</button>
       <button class="btn-ghost" id="btn-logout">로그아웃</button>
     </div>
@@ -384,6 +407,20 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
     <input type="file" id="upload-file-input" accept=".xlsx,.xls">
     <button id="btn-do-upload">업로드</button>
     <div class="admin-msg" id="upload-msg"></div>
+  </div>
+
+  <div class="admin-panel hidden" id="price-panel">
+    <h3>업체 단가 비교</h3>
+    <p style="font-size:12.5px; color:var(--ink-dim); margin:0 0 10px;">
+      업체명·재질·사이즈로 조건을 나눠서 여러 업체의 소재단가/외주단가/수주단가를 한 화면에서 비교합니다.
+      아래에서 필요한 항목을 체크한 뒤 "선택 항목 엑셀로 내보내기"를 누르면 엑셀 파일로 받을 수 있습니다.
+    </p>
+    <div class="admin-msg" id="price-msg"></div>
+    <div id="price-cols"></div>
+    <div style="display:flex; gap:8px; margin:12px 0;">
+      <button id="btn-price-addcol" class="btn-ghost">+ 비교 조건 추가</button>
+      <button id="btn-price-export">선택 항목(<span id="price-sel-count">0</span>) 엑셀로 내보내기</button>
+    </div>
   </div>
 
   <div class="doc-panel hidden" id="doc-panel">
@@ -681,7 +718,7 @@ function dpRunSearch(){
   const matches = DATA.filter(d=>{
     if(d.vendor !== vendor) return false;
     if(docSelected.has(d.id)) return false;
-    const hay = [d.order_no, d.item, d.drawing_no, d.po_no, d.mgmt_no].map(v=>String(v||'').toLowerCase()).join(' ');
+    const hay = [d.order_no, d.item, d.drawing_no, d.po_no, d.mgmt_no, d.material, d.size].map(v=>String(v||'').toLowerCase()).join(' ');
     return hay.indexOf(q) >= 0;
   }).slice(0, 20);
 
@@ -920,7 +957,7 @@ function applyFilter(){
     }
     if(state.text){
       const t = state.text.toLowerCase();
-      const hay = [d.order_no,d.item,d.drawing_no,d.po_no,d.mgmt_no].filter(Boolean).join(' ').toLowerCase();
+      const hay = [d.order_no,d.item,d.drawing_no,d.po_no,d.mgmt_no,d.material,d.size].filter(Boolean).join(' ').toLowerCase();
       if(hay.indexOf(t)<0) return false;
     }
     if(state.card==='material' && d._status!=='red-material') return false;
@@ -1353,6 +1390,7 @@ function showApp(){
   document.getElementById('btn-gen-wo').classList.toggle('hidden', !(AUTH.role==='owner' || AUTH.role==='admin'));
   document.getElementById('btn-gen-ds').classList.toggle('hidden', !(AUTH.role==='owner' || AUTH.role==='admin'));
   document.getElementById('btn-upload-toggle').classList.toggle('hidden', !(AUTH.role==='owner' || AUTH.role==='admin'));
+  document.getElementById('btn-price-toggle').classList.toggle('hidden', !(AUTH.role==='owner' || AUTH.role==='admin'));
   const isProd = AUTH.role==='production';
   document.getElementById('cards').classList.toggle('hidden', isProd);
   document.getElementById('filters-row').classList.toggle('hidden', isProd);
@@ -1443,6 +1481,177 @@ document.getElementById('btn-do-upload').addEventListener('click', async ()=>{
     msg.textContent = err.message || '업로드 중 오류가 발생했습니다.';
     msg.className = 'admin-msg err';
   }
+});
+
+// ===================== 업체 단가 비교 (owner/admin 전용) =====================
+let PRICE_DATA = null;          // 서버에서 받아온 단가 포함 전체 행 (최초 패널을 열 때 1회 로드)
+let priceColumns = [];          // [{id, vendor, material, size}]
+let priceColSeq = 0;
+const priceSelected = new Set(); // 선택된 PRICE_DATA의 인덱스
+
+const PRICE_TABLE_COLS = [
+  ['mgmt_no','관리번호'], ['order_no','수주번호'], ['item','품명'], ['material','재질'], ['size','사이즈'],
+  ['client_vendor','수주처'], ['material_vendor','소재발주처'], ['material_price','소재단가'],
+  ['outsource_vendor','외주가공업체'], ['outsource_price','외주단가'], ['order_price','수주단가']
+];
+const PRICE_NUM_FIELDS = ['material_price','outsource_price','order_price'];
+const PRICE_ROW_LIMIT = 150; // 조건 하나당 화면에 보여줄 최대 행 수(너무 많으면 버벅이므로)
+
+document.getElementById('btn-price-toggle').addEventListener('click', async ()=>{
+  const panel = document.getElementById('price-panel');
+  panel.classList.toggle('hidden');
+  if(panel.classList.contains('hidden')) return;
+  if(!PRICE_DATA){
+    const msg = document.getElementById('price-msg');
+    msg.textContent = '단가 데이터를 불러오는 중…';
+    msg.className = 'admin-msg';
+    try{
+      const result = await apiAdminPost({ action:'fetchPriceData' });
+      if(!result.ok) throw new Error(result.error || '불러오기 실패');
+      PRICE_DATA = result.rows || [];
+      msg.textContent = '';
+      if(!priceColumns.length){ addPriceColumn(); addPriceColumn(); }
+      renderPriceColumns();
+    }catch(err){
+      msg.textContent = err.message || '단가 데이터를 불러오지 못했습니다.';
+      msg.className = 'admin-msg err';
+    }
+  }
+});
+
+function priceVendorList_(){
+  const set = new Set();
+  (PRICE_DATA||[]).forEach(r=>{
+    [r.client_vendor, r.material_vendor, r.outsource_vendor].forEach(v=>{ if(v) set.add(v); });
+  });
+  return [...set].sort((a,b)=>a.localeCompare(b,'ko'));
+}
+
+function addPriceColumn(){
+  priceColSeq++;
+  priceColumns.push({ id: priceColSeq, vendor:'', material:'', size:'' });
+  renderPriceColumns();
+}
+
+function removePriceColumn(id){
+  priceColumns = priceColumns.filter(c=>c.id!==id);
+  renderPriceColumns();
+}
+
+function priceRowMatches_(row, col){
+  if(col.vendor){
+    const v = col.vendor.toLowerCase();
+    const hay = [row.client_vendor, row.material_vendor, row.outsource_vendor].filter(Boolean).join(' ').toLowerCase();
+    if(hay.indexOf(v) < 0) return false;
+  }
+  if(col.material){
+    if(!String(row.material||'').toLowerCase().includes(col.material.toLowerCase())) return false;
+  }
+  if(col.size){
+    if(!String(row.size||'').toLowerCase().includes(col.size.toLowerCase())) return false;
+  }
+  return true;
+}
+
+function renderPriceColumns(){
+  const wrap = document.getElementById('price-cols');
+  wrap.innerHTML = '';
+  const vendorListId = 'price-vendor-list';
+  if(!document.getElementById(vendorListId)){
+    const dl = document.createElement('datalist');
+    dl.id = vendorListId;
+    document.body.appendChild(dl);
+  }
+  const dl = document.getElementById(vendorListId);
+  dl.innerHTML = priceVendorList_().map(v=>'<option value="'+v.replace(/"/g,'&quot;')+'">').join('');
+
+  priceColumns.forEach(col=>{
+    const box = document.createElement('div');
+    box.className = 'price-col';
+
+    const head = document.createElement('div');
+    head.className = 'price-col-head';
+    head.innerHTML =
+      '<input type="text" placeholder="업체명" list="'+vendorListId+'" value="'+(col.vendor||'').replace(/"/g,'&quot;')+'" data-k="vendor">'+
+      '<input type="text" placeholder="재질" value="'+(col.material||'').replace(/"/g,'&quot;')+'" data-k="material">'+
+      '<input type="text" placeholder="사이즈" value="'+(col.size||'').replace(/"/g,'&quot;')+'" data-k="size">'+
+      (priceColumns.length>1 ? '<button class="price-col-remove" title="이 조건 삭제">✕</button>' : '');
+    head.querySelectorAll('input').forEach(inp=>{
+      inp.addEventListener('input', ()=>{ col[inp.dataset.k] = inp.value; renderPriceTable_(box, col); });
+    });
+    const removeBtn = head.querySelector('.price-col-remove');
+    if(removeBtn) removeBtn.addEventListener('click', ()=>removePriceColumn(col.id));
+    box.appendChild(head);
+
+    const countEl = document.createElement('div');
+    countEl.className = 'price-col-count';
+    box.appendChild(countEl);
+
+    const tableWrap = document.createElement('div');
+    tableWrap.style.overflowX = 'auto';
+    box.appendChild(tableWrap);
+
+    wrap.appendChild(box);
+    renderPriceTable_(box, col);
+  });
+
+  updatePriceSelCount_();
+}
+
+function renderPriceTable_(box, col){
+  const countEl = box.querySelector('.price-col-count');
+  const tableWrap = box.children[2];
+  const matches = [];
+  (PRICE_DATA||[]).forEach((row, idx)=>{
+    if(priceRowMatches_(row, col)) matches.push(idx);
+  });
+  countEl.textContent = matches.length.toLocaleString() + '건 일치' + (matches.length>PRICE_ROW_LIMIT ? ' (상위 '+PRICE_ROW_LIMIT+'건만 표시)' : '');
+
+  const shown = matches.slice(0, PRICE_ROW_LIMIT);
+  let html = '<table class="price-table"><thead><tr><th></th>' +
+    PRICE_TABLE_COLS.map(c=>'<th>'+c[1]+'</th>').join('') + '</tr></thead><tbody>';
+  shown.forEach(idx=>{
+    const row = PRICE_DATA[idx];
+    html += '<tr><td><input type="checkbox" class="price-row-chk" data-idx="'+idx+'" '+(priceSelected.has(idx)?'checked':'')+'></td>';
+    PRICE_TABLE_COLS.forEach(c=>{
+      const val = row[c[0]];
+      const isNum = PRICE_NUM_FIELDS.includes(c[0]);
+      html += '<td'+(isNum?' class="num"':'')+'>'+(val!==undefined && val!==null && val!=='' ? (isNum ? Number(val).toLocaleString() : val) : '<span class="dim">—</span>')+'</td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  if(!shown.length) html = '<div class="dim" style="padding:8px 0;">조건에 맞는 품목이 없습니다.</div>';
+  tableWrap.innerHTML = html;
+
+  tableWrap.querySelectorAll('.price-row-chk').forEach(chk=>{
+    chk.addEventListener('change', ()=>{
+      const idx = Number(chk.dataset.idx);
+      if(chk.checked) priceSelected.add(idx); else priceSelected.delete(idx);
+      updatePriceSelCount_();
+    });
+  });
+}
+
+function updatePriceSelCount_(){
+  document.getElementById('price-sel-count').textContent = priceSelected.size.toLocaleString();
+}
+
+document.getElementById('btn-price-addcol').addEventListener('click', addPriceColumn);
+
+document.getElementById('btn-price-export').addEventListener('click', ()=>{
+  if(!priceSelected.size){ alert('내보낼 항목을 먼저 선택하세요.'); return; }
+  const rows = [...priceSelected].sort((a,b)=>a-b).map(idx=>{
+    const row = PRICE_DATA[idx];
+    const out = {};
+    PRICE_TABLE_COLS.forEach(c=>{ out[c[1]] = row[c[0]] !== undefined ? row[c[0]] : ''; });
+    return out;
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '단가비교');
+  const stamp = new Date().toISOString().slice(0,19).replace(/[-:T]/g,'');
+  XLSX.writeFile(wb, '단가비교_' + stamp + '.xlsx');
 });
 
 async function apiAdminPost(body){
