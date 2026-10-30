@@ -424,6 +424,20 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
     </p>
     <div class="admin-msg" id="price-msg"></div>
 
+    <div id="price-cols"></div>
+    <div style="display:flex; gap:8px; margin:12px 0;">
+      <button id="btn-price-addcol" class="btn-ghost">+ 비교 조건 추가</button>
+      <button id="btn-price-export">선택 항목(<span id="price-sel-count">0</span>) 엑셀로 내보내기</button>
+    </div>
+  </div>
+
+  <div class="admin-panel hidden" id="doclog-panel">
+    <h3>판매·구매 조회 및 검색</h3>
+    <p style="font-size:12.5px; color:var(--ink-dim); margin:0 0 10px;">
+      지금까지 생성한 견적서·발주서·작업지시서·거래명세서·매입거래명세서·세금계산서를 조건으로 찾아서 바로 열어볼 수 있습니다.
+      잘못 발행된 건은 "취소 처리"를 누르면 기록은 남고 매입합계 집계에서만 제외됩니다. 위쪽 버튼으로 월별/년별 매입·매출 합계도 볼 수 있습니다.
+    </p>
+    <div class="admin-msg" id="doclog-msg"></div>
     <div style="display:flex; gap:8px; margin-bottom:10px;">
       <button id="btn-purchase-summary" class="btn-ghost">📥 매입합계 (월별/년별)</button>
       <button id="btn-sales-summary" class="btn-ghost">📤 매출합계 (월별/년별)</button>
@@ -440,20 +454,6 @@ footer.note{margin-top:20px; font-size:11.5px; color:var(--ink-faint); line-heig
       <div id="money-summary-table"></div>
     </div>
 
-    <div id="price-cols"></div>
-    <div style="display:flex; gap:8px; margin:12px 0;">
-      <button id="btn-price-addcol" class="btn-ghost">+ 비교 조건 추가</button>
-      <button id="btn-price-export">선택 항목(<span id="price-sel-count">0</span>) 엑셀로 내보내기</button>
-    </div>
-  </div>
-
-  <div class="admin-panel hidden" id="doclog-panel">
-    <h3>판매·구매 조회 및 검색</h3>
-    <p style="font-size:12.5px; color:var(--ink-dim); margin:0 0 10px;">
-      지금까지 생성한 견적서·발주서·작업지시서·거래명세서·매입거래명세서·세금계산서를 조건으로 찾아서 바로 열어볼 수 있습니다.
-      잘못 발행된 건은 "취소 처리"를 누르면 기록은 남고 매입/매출 합계 집계에서만 제외됩니다.
-    </p>
-    <div class="admin-msg" id="doclog-msg"></div>
     <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
       <select id="doclog-type">
         <option value="">전체 문서종류</option>
@@ -1980,26 +1980,31 @@ function renderMoneySummary_(){
 
 async function toggleMoneySummary_(type){
   const box = document.getElementById('money-summary-box');
+  const msgEl = document.getElementById('doclog-msg');
   if(moneySummaryType === type && !box.classList.contains('hidden')){
     box.classList.add('hidden');
     moneySummaryType = null;
     return;
   }
-  if(type === 'sales' && !PRICE_DATA){
-    document.getElementById('price-msg').textContent = '단가 데이터를 불러오는 중입니다. 잠시 후 다시 시도하세요.';
-    return;
-  }
-  if(type === 'purchase' && !PURCHASE_LEDGER){
-    document.getElementById('price-msg').textContent = '매입거래명세서 기록을 불러오는 중…';
-    try{
+  msgEl.className = 'admin-msg';
+  try{
+    if(type === 'sales' && !PRICE_DATA){
+      msgEl.textContent = '매출 데이터를 불러오는 중…';
+      const result = await apiAdminPost({ action:'fetchPriceData' });
+      if(!result.ok) throw new Error(result.error || '불러오기 실패');
+      PRICE_DATA = result.rows || [];
+    }
+    if(type === 'purchase' && !PURCHASE_LEDGER){
+      msgEl.textContent = '매입거래명세서 기록을 불러오는 중…';
       const result = await apiAdminPost({ action:'fetchPurchaseLedger' });
       if(!result.ok) throw new Error(result.error || '불러오기 실패');
       PURCHASE_LEDGER = result.rows || [];
-      document.getElementById('price-msg').textContent = '';
-    }catch(err){
-      document.getElementById('price-msg').textContent = err.message || '매입거래명세서 기록을 불러오지 못했습니다.';
-      return;
     }
+    msgEl.textContent = '';
+  }catch(err){
+    msgEl.textContent = err.message || '데이터를 불러오지 못했습니다.';
+    msgEl.className = 'admin-msg err';
+    return;
   }
   moneySummaryType = type;
   box.classList.remove('hidden');
@@ -2115,6 +2120,10 @@ function renderDoclogTable_(){
         if(!result.ok) throw new Error(result.error || '처리 실패');
         DOC_LOG = null; // 다음에 열 때 새로 불러오도록
         PURCHASE_LEDGER = null; // 매입합계 집계에도 반영되도록 캐시 비움
+        if(moneySummaryType === 'purchase'){
+          const lr = await apiAdminPost({ action:'fetchPurchaseLedger' });
+          if(lr.ok){ PURCHASE_LEDGER = lr.rows || []; renderMoneySummary_(); }
+        }
         doclogMsg.textContent = result.cancelled ? '취소 처리되었습니다.' : '정상으로 복구되었습니다.';
         doclogMsg.className = 'admin-msg ok';
         const r2 = await apiAdminPost({ action:'fetchDocumentLog' });
